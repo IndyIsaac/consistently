@@ -2,19 +2,34 @@ import { z } from "zod";
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-export const RuleConfigSchema = z.object({
-  cadence: z.number().int().min(1).max(7),
-  period: z.enum(["week", "day"]),
-  sessionType: z.enum(["checkin", "checkin_checkout"]),
-  minDurationMins: z.number().int().min(1).nullable(),
-  windowStart: z.string().regex(TIME_RE),
-  windowEnd: z.string().regex(TIME_RE),
-  proof: z.enum(["photo", "self_attest"]),
-  failsWhenMissedExceeds: z.number().int().min(0),
-  split: z.literal("equal"),
-  exemption: z.enum(["majority", "none"]),
-  durationPeriods: z.number().int().min(1).max(52),
-});
+/** Converts a "HH:MM" string to minutes-since-midnight. Throws on anything not matching TIME_RE. */
+function toMinutes(hhmm: string): number {
+  const match = TIME_RE.exec(hhmm);
+  if (!match) {
+    throw new Error(`Invalid time "${hhmm}": expected 24-hour "HH:MM"`);
+  }
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+export const RuleConfigSchema = z
+  .object({
+    cadence: z.number().int().min(1).max(7),
+    period: z.enum(["week", "day"]),
+    sessionType: z.enum(["checkin", "checkin_checkout"]),
+    minDurationMins: z.number().int().min(1).nullable(),
+    windowStart: z.string().regex(TIME_RE),
+    windowEnd: z.string().regex(TIME_RE),
+    proof: z.enum(["photo", "self_attest"]),
+    failsWhenMissedExceeds: z.number().int().min(0),
+    split: z.literal("equal"),
+    exemption: z.enum(["majority", "none"]),
+    durationPeriods: z.number().int().min(1).max(52),
+  })
+  .refine((data) => toMinutes(data.windowStart) < toMinutes(data.windowEnd), {
+    message:
+      "windowStart must be strictly before windowEnd; wrapping windows (e.g. 22:00-02:00) are not supported",
+    path: ["windowEnd"],
+  });
 
 export type RuleConfig = z.infer<typeof RuleConfigSchema>;
 
@@ -39,11 +54,6 @@ function zoned(d: Date, timezone: string): { key: string; minutes: number } {
   };
 }
 
-function toMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-}
-
 /** A session belongs to the day it STARTED, in the crew's timezone. */
 export function dayKeyFor(startedAt: Date, timezone: string): string {
   return zoned(startedAt, timezone).key;
@@ -64,6 +74,8 @@ export function isValidSession(
 
   if (!session.endedAt) return false;
 
+  if (session.endedAt.getTime() < session.startedAt.getTime()) return false;
+
   if (rule.minDurationMins !== null) {
     const mins = (session.endedAt.getTime() - session.startedAt.getTime()) / 60_000;
     if (mins < rule.minDurationMins) return false;
@@ -71,6 +83,14 @@ export function isValidSession(
   return true;
 }
 
+/**
+ * Counts distinct local-day keys (per `dayKeyFor`) among the valid sessions in `sessions`.
+ *
+ * Precondition: `sessions` must already be filtered by the caller to a single evaluation
+ * period (per `rule.period`) in the crew's timezone. This function does not window by
+ * `rule.period` or `rule.durationPeriods` — those fields are metadata for the caller's
+ * period selection, not inputs consumed here.
+ */
 export function countValidDays(
   sessions: SessionRecord[],
   rule: RuleConfig,
@@ -83,6 +103,15 @@ export function countValidDays(
   return days.size;
 }
 
+/**
+ * Determines whether the member failed the rule, given sessions from a single evaluation
+ * period.
+ *
+ * Precondition: `sessions` must already be filtered by the caller to a single evaluation
+ * period (per `rule.period`) in the crew's timezone — same precondition as `countValidDays`,
+ * whose result this is built on. `rule.period` and `rule.durationPeriods` are not read here;
+ * they describe how the caller should carve up a member's history into periods before calling.
+ */
 export function hasFailed(
   sessions: SessionRecord[],
   rule: RuleConfig,
