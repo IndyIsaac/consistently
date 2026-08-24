@@ -14,13 +14,14 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 const input = "rounded-lg border border-neutral-300 px-2 py-1 text-sm";
 
 /**
- * Parses a number input's raw string, falling back to `fallback` when the value doesn't
- * parse to a finite number (e.g. an emptied field, or an in-progress "-" while typing).
- * Keeps NaN/Infinity out of RuleConfig so every onChange stays a valid shape.
+ * Parses a number input's raw string, falling back to `fallback` unless the result is an
+ * integer within [min, max]. Rejects non-numbers, decimals, and out-of-range values (not just
+ * NaN/Infinity) so a cleared field never writes 0 -- or any other schema-invalid number -- into
+ * RuleConfig; the field simply keeps its previous value until the user types something valid.
  */
-function parseNumber(raw: string, fallback: number): number {
+function parseNumber(raw: string, fallback: number, min: number, max: number = Infinity): number {
   const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
+  return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 }
 
 export function RuleEditor({
@@ -55,7 +56,7 @@ export function RuleEditor({
           max={7}
           className={input}
           value={value.cadence}
-          onChange={(e) => set("cadence", parseNumber(e.target.value, value.cadence))}
+          onChange={(e) => set("cadence", parseNumber(e.target.value, value.cadence, 1, 7))}
         />
       </Row>
 
@@ -78,7 +79,7 @@ export function RuleEditor({
             className={input}
             value={value.minDurationMins ?? 30}
             onChange={(e) =>
-              set("minDurationMins", parseNumber(e.target.value, value.minDurationMins ?? 30))
+              set("minDurationMins", parseNumber(e.target.value, value.minDurationMins ?? 30, 1))
             }
           />
         </Row>
@@ -116,7 +117,10 @@ export function RuleEditor({
           className={input}
           value={value.failsWhenMissedExceeds}
           onChange={(e) =>
-            set("failsWhenMissedExceeds", parseNumber(e.target.value, value.failsWhenMissedExceeds))
+            set(
+              "failsWhenMissedExceeds",
+              parseNumber(e.target.value, value.failsWhenMissedExceeds, 0),
+            )
           }
         />
       </Row>
@@ -129,7 +133,7 @@ export function RuleEditor({
           className={input}
           value={value.durationPeriods}
           onChange={(e) =>
-            set("durationPeriods", parseNumber(e.target.value, value.durationPeriods))
+            set("durationPeriods", parseNumber(e.target.value, value.durationPeriods, 1, 52))
           }
         />
       </Row>
