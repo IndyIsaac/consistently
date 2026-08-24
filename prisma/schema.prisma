@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String       @id @default(cuid())
+  privyId       String       @unique
+  walletAddress String       @unique
+  displayName   String
+  createdAt     DateTime     @default(now())
+  memberships   Membership[]
+  reactions     Reaction[]
+  votes         Vote[]
+  createdPacts  Pact[]       @relation("PactCreator")
+}
+
+enum PactStatus {
+  funding
+  active
+  settled
+}
+
+model Pact {
+  id            String       @id @default(cuid())
+  name          String
+  inviteToken   String       @unique
+  createdById   String
+  createdBy     User         @relation("PactCreator", fields: [createdById], references: [id])
+  ruleConfig    Json
+  timezone      String       @default("Asia/Bangkok")
+  stakeAmount   Decimal      @db.Decimal(18, 2)
+  stakeCurrency String
+  fxRateToUsd   Decimal      @db.Decimal(18, 8)
+  fxFetchedAt   DateTime
+  stakeUsdc     BigInt
+  vaultAddress  String
+  vaultSecretEnc String
+  status        PactStatus   @default(funding)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  createdAt     DateTime     @default(now())
+  memberships   Membership[]
+  feedItems     FeedItem[]
+  settlements   Settlement[]
+}
+
+enum MemberStatus {
+  invited
+  staked
+  passed
+  failed
+  left
+}
+
+model Membership {
+  id          String       @id @default(cuid())
+  pactId      String
+  pact        Pact         @relation(fields: [pactId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  status      MemberStatus @default(invited)
+  stakedAt    DateTime?
+  stakeTxSig  String?
+  payoutMint  String       @default("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+  payoutTxSig String?
+  sessions    Session[]
+  exemptions  Exemption[]
+  feedItems   FeedItem[]
+
+  @@unique([pactId, userId])
+}
+
+model Session {
+  id            String     @id @default(cuid())
+  membershipId  String
+  membership    Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  startedAt     DateTime
+  endedAt       DateTime?
+  startPhotoUrl String?
+  endPhotoUrl   String?
+  dayKey        String
+  createdAt     DateTime   @default(now())
+
+  @@index([membershipId, dayKey])
+}
+
+enum FeedItemType {
+  checkin
+  checkout
+  bot
+  exemption_request
+  exemption_result
+  settlement
+}
+
+model FeedItem {
+  id           String       @id @default(cuid())
+  pactId       String
+  pact         Pact         @relation(fields: [pactId], references: [id], onDelete: Cascade)
+  membershipId String?
+  membership   Membership?  @relation(fields: [membershipId], references: [id])
+  type         FeedItemType
+  body         String
+  photoUrl     String?
+  createdAt    DateTime     @default(now())
+  reactions    Reaction[]
+
+  @@index([pactId, createdAt])
+}
+
+model Reaction {
+  id         String   @id @default(cuid())
+  feedItemId String
+  feedItem   FeedItem @relation(fields: [feedItemId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  emoji      String
+
+  @@unique([feedItemId, userId, emoji])
+}
+
+enum ExemptionStatus {
+  pending
+  granted
+  denied
+}
+
+model Exemption {
+  id           String          @id @default(cuid())
+  membershipId String
+  membership   Membership      @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  periodKey    String
+  reason       String
+  status       ExemptionStatus @default(pending)
+  createdAt    DateTime        @default(now())
+  votes        Vote[]
+
+  @@unique([membershipId, periodKey])
+}
+
+model Vote {
+  id          String    @id @default(cuid())
+  exemptionId String
+  exemption   Exemption @relation(fields: [exemptionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  approve     Boolean
+
+  @@unique([exemptionId, userId])
+}
+
+model Settlement {
+  id            String   @id @default(cuid())
+  pactId        String
+  pact          Pact     @relation(fields: [pactId], references: [id], onDelete: Cascade)
+  periodKey     String
+  totalPotUsdc  BigInt
+  payouts       Json
+  createdAt     DateTime @default(now())
+
+  @@unique([pactId, periodKey])
+}
