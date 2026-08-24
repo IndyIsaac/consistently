@@ -86,7 +86,16 @@ async function callOrder(params: CallParams): Promise<OrderResponse> {
   if (process.env.DFLOW_API_KEY) headers["x-api-key"] = process.env.DFLOW_API_KEY;
 
   const res = await fetch(`${BASE_URL}/order?${q.toString()}`, { headers });
-  const body = await res.json();
+  const text = await res.text();
+
+  let body: any;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // Non-JSON body (e.g. a gateway's plain-text/HTML 429, 502, 504) — never
+    // let a raw SyntaxError escape past the DFlowError contract.
+    throw new DFlowError("unknown", text || res.statusText || "request failed", res.status);
+  }
 
   if (!res.ok) {
     throw new DFlowError(body?.code ?? "unknown", body?.msg ?? "request failed", res.status);

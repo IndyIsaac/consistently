@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { getQuote, buildOrder, USDC_MINT, WSOL_MINT } from "@/lib/dflow";
+import { describe, it, expect, vi } from "vitest";
+import { getQuote, buildOrder, DFlowError, USDC_MINT, WSOL_MINT } from "@/lib/dflow";
 
 describe("dflow client", () => {
   it("quotes SOL to USDC against mainnet liquidity", async () => {
@@ -39,5 +39,33 @@ describe("dflow client", () => {
         amount: 1_000_000n,
       }),
     ).rejects.toThrow(/dflow/i);
+  });
+
+  it("wraps a non-JSON error body (e.g. a gateway's rate-limit page) in a DFlowError, not a raw SyntaxError", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () =>
+      new Response("<html>Too Many Requests</html>", {
+        status: 429,
+        statusText: "Too Many Requests",
+      }),
+    ) as unknown as typeof fetch;
+
+    try {
+      let caught: unknown;
+      try {
+        await getQuote({
+          inputMint: WSOL_MINT,
+          outputMint: USDC_MINT,
+          amount: 1_000_000_000n,
+        });
+      } catch (e) {
+        caught = e;
+      }
+
+      expect(caught).toBeInstanceOf(DFlowError);
+      expect((caught as DFlowError).status).toBe(429);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
