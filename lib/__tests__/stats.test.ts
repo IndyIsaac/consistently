@@ -91,4 +91,32 @@ describe("leaderboard", () => {
     expect(rows[0].currentStreak).toBe(2);
     expect(rows[1].currentStreak).toBe(1);
   });
+
+  // Beyond the brief: neither test above ever reads `.longestStreak` off a LeaderRow, and
+  // in both fixtures currentStreak and longestStreak happen to be numerically identical
+  // per member (a: 2/2, x: 1/1, y: 2/2). So an implementation that wrote
+  // `longestStreak: currentStreak(...)` at the leaderboard composition site, or hardcoded
+  // the field to 0, would pass every test above silently -- the standalone longestStreak()
+  // unit test proves the function works, but nothing proves leaderboard() actually calls
+  // it. Here "z" has a broken 4-day run early in history (08-01..04) followed by a gap and
+  // a single current-day session (08-25): longestStreak = 4, currentStreak = 1, genuinely
+  // different values, so only reading the right field passes.
+  it("carries longestStreak through the leaderboard composition, distinct from currentStreak", () => {
+    const today = new Date("2026-08-25T12:00:00.000Z");
+    const rows = leaderboard(
+      [
+        {
+          memberId: "z",
+          displayName: "Zoe",
+          sessions: [
+            day("2026-08-01"), day("2026-08-02"), day("2026-08-03"), day("2026-08-04"),
+            day("2026-08-25"),
+          ],
+        },
+      ],
+      rule, TZ, today,
+    );
+    expect(rows[0].currentStreak).toBe(1);
+    expect(rows[0].longestStreak).toBe(4);
+  });
 });
