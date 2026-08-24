@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { dayKeyFor } from "@/lib/rules";
 
+/**
+ * Thrown for the guard conditions a caller is meant to see and act on (e.g. "a
+ * session is already open"). Anything else -- a Prisma error, a malformed
+ * request body -- must never reach the client as-is: Prisma's
+ * `findUniqueOrThrow` messages embed absolute source file paths and a snippet
+ * of the calling code, so an unauthenticated caller passing a bogus id must
+ * not see the raw error.
+ */
+class SessionGuardError extends Error {}
+
 export async function openSession(params: {
   pactId: string;
   userWallet: string;
@@ -18,7 +28,7 @@ export async function openSession(params: {
   const open = await prisma.session.findFirst({
     where: { membershipId: membership.id, endedAt: null },
   });
-  if (open) throw new Error("A session is already open. Check out first.");
+  if (open) throw new SessionGuardError("A session is already open. Check out first.");
 
   const startedAt = new Date();
   const session = await prisma.session.create({
@@ -49,9 +59,9 @@ export async function closeSession(params: {
 }): Promise<{ durationMins: number }> {
   const session = await prisma.session.findUniqueOrThrow({
     where: { id: params.sessionId },
-    include: { membership: { include: { user: true, pact: true } } },
+    include: { membership: { include: { user: true } } },
   });
-  if (session.endedAt) throw new Error("Session is already closed.");
+  if (session.endedAt) throw new SessionGuardError("Session is already closed.");
 
   const endedAt = new Date();
   const durationMins = Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 60_000);
@@ -76,9 +86,10 @@ export async function closeSession(params: {
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const body = await req.json();
 
   try {
+    const body = await req.json();
+
     if (body.action === "open") {
       return NextResponse.json(
         await openSession({
@@ -95,9 +106,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }
     return NextResponse.json({ error: "action must be open or close" }, { status: 400 });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "session failed" },
-      { status: 400 },
-    );
+    if (e instanceof SessionGuardError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    console.error("POST /api/pacts/[id]/sessions failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Session request failed" }, { status: 500 });
   }
 }
