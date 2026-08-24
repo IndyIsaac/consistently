@@ -25,11 +25,25 @@ export const RuleConfigSchema = z
     exemption: z.enum(["majority", "none"]),
     durationPeriods: z.number().int().min(1).max(52),
   })
-  .refine((data) => toMinutes(data.windowStart) < toMinutes(data.windowEnd), {
-    message:
-      "windowStart must be strictly before windowEnd; wrapping windows (e.g. 22:00-02:00) are not supported",
-    path: ["windowEnd"],
-  });
+  .refine(
+    (data) => {
+      // toMinutes throws on a string that doesn't match TIME_RE. The field-level
+      // .regex(TIME_RE) checks above are non-aborting in zod 4 -- this refine still runs
+      // and receives the raw invalid string. That regex has already recorded the real
+      // issue, so this refine declines to add a second one rather than propagating a
+      // raw Error and breaking safeParse's no-throw contract.
+      try {
+        return toMinutes(data.windowStart) < toMinutes(data.windowEnd);
+      } catch {
+        return true;
+      }
+    },
+    {
+      message:
+        "windowStart must be strictly before windowEnd; wrapping windows (e.g. 22:00-02:00) are not supported",
+      path: ["windowEnd"],
+    },
+  );
 
 export type RuleConfig = z.infer<typeof RuleConfigSchema>;
 

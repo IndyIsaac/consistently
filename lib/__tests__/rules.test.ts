@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { ZodError } from "zod";
 import {
   RuleConfigSchema,
   isValidSession,
@@ -37,6 +38,30 @@ describe("rule config schema", () => {
     expect(() =>
       RuleConfigSchema.parse({ ...gym, windowStart: "22:00", windowEnd: "02:00" }),
     ).toThrow();
+  });
+
+  it("safeParse never throws on a malformed windowStart, even though the cross-field refine also inspects it", () => {
+    // The field-level .regex(TIME_RE) check is non-aborting in zod 4: the object-level
+    // .refine() still runs and receives the raw invalid string. toMinutes (used by the
+    // refine) throws on malformed input — that throw must not escape the refine and
+    // break safeParse's no-throw contract.
+    let result: ReturnType<typeof RuleConfigSchema.safeParse> | undefined;
+    expect(() => {
+      result = RuleConfigSchema.safeParse({ ...gym, windowStart: "garbage" });
+    }).not.toThrow();
+    expect(result?.success).toBe(false);
+  });
+
+  it("parse throws a ZodError (not a raw Error) for a malformed windowStart", () => {
+    // Asserting merely "it throws" would have passed even when parse threw a raw Error
+    // instead of a ZodError — the exact regression this pins.
+    let caught: unknown;
+    try {
+      RuleConfigSchema.parse({ ...gym, windowStart: "garbage" });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ZodError);
   });
 });
 
