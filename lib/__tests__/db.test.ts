@@ -5,8 +5,8 @@ describe("data model", () => {
   it("creates a pact with a member and a session", async () => {
     const user = await prisma.user.create({
       data: {
-        privyId: `test-${Date.now()}`,
-        walletAddress: `wallet-${Date.now()}`,
+        privyId: `test-${crypto.randomUUID()}`,
+        walletAddress: `wallet-${crypto.randomUUID()}`,
         displayName: "Test",
       },
     });
@@ -14,7 +14,7 @@ describe("data model", () => {
     const pact = await prisma.pact.create({
       data: {
         name: "Five day fitness",
-        inviteToken: `tok-${Date.now()}`,
+        inviteToken: `tok-${crypto.randomUUID()}`,
         createdById: user.id,
         ruleConfig: { cadence: 5, period: "week" },
         stakeAmount: "1000",

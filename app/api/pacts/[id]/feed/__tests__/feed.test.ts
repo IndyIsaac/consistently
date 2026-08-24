@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { createVault } from "@/lib/vault";
 
 async function fixture() {
-  const stamp = Date.now();
+  const stamp = crypto.randomUUID();
   const user = await prisma.user.create({
     data: { privyId: `p-${stamp}`, walletAddress: `w-${stamp}`, displayName: "Tester" },
   });
