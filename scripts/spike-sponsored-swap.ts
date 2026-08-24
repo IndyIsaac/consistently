@@ -5,9 +5,26 @@ import { buildOrder, USDC_MINT, WSOL_MINT } from "../lib/dflow";
 import { deserializeTx, signWith, submitAndConfirm, loadSponsor } from "../lib/solana";
 
 async function main() {
+  if (process.env.CONFIRM_MAINNET_SPIKE !== "1") {
+    throw new Error(
+      "This script submits a real, sponsored swap on Solana mainnet, spending funds " +
+        "from SPONSOR_SECRET_KEY and TEST_USER_SECRET_KEY. Set CONFIRM_MAINNET_SPIKE=1 " +
+        "to run it deliberately.",
+    );
+  }
+
   const user = Keypair.fromSecretKey(bs58.decode(process.env.TEST_USER_SECRET_KEY!));
   const sponsor = loadSponsor();
-  const destination = process.env.TEST_DESTINATION_WALLET ?? user.publicKey.toBase58();
+
+  const destination = process.env.TEST_DESTINATION_WALLET;
+  if (!destination || destination === user.publicKey.toBase58()) {
+    throw new Error(
+      "TEST_DESTINATION_WALLET must be set to an address different from the test " +
+        "user's wallet. destinationWallet routing is the mechanism that gets a pact's " +
+        "proceeds into its vault instead of back to the member -- if this spike swaps " +
+        "into the user's own wallet, it proves nothing about that routing.",
+    );
+  }
 
   console.log("user    ", user.publicKey.toBase58());
   console.log("sponsor ", sponsor.publicKey.toBase58());

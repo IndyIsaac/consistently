@@ -1,4 +1,10 @@
-import { Connection, Keypair, VersionedTransaction } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  type RpcResponseAndContext,
+  type SignatureResult,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import bs58 from "bs58";
 
 export function getConnection(): Connection {
@@ -28,6 +34,24 @@ export function loadSponsor(): Keypair {
   return Keypair.fromSecretKey(bs58.decode(raw));
 }
 
+const CONFIRMATION_TIMEOUT_MS = 90_000;
+
+/**
+ * A failure (or confirmation timeout) that occurs after `sendRawTransaction` has
+ * already returned. The transaction is on the network at that point and may still
+ * land -- callers must check `signature` against chain state before retrying,
+ * since retrying the caller's swap logic here would re-execute it.
+ */
+export class SubmitError extends Error {
+  constructor(
+    message: string,
+    public readonly signature: string,
+  ) {
+    super(message);
+    this.name = "SubmitError";
+  }
+}
+
 export async function submitAndConfirm(
   tx: VersionedTransaction,
   lastValidBlockHeight: number,
@@ -37,11 +61,43 @@ export async function submitAndConfirm(
     skipPreflight: false,
     maxRetries: 3,
   });
-  const { blockhash } = await connection.getLatestBlockhash("confirmed");
-  const { value } = await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
+
+  // Everything below this point is already broadcast. Every failure from here
+  // must carry `signature` so a caller can check whether it landed instead of
+  // blindly retrying -- see SubmitError above.
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`Confirmation timed out after ${CONFIRMATION_TIMEOUT_MS}ms`)),
+    CONFIRMATION_TIMEOUT_MS,
   );
-  if (value.err) throw new Error(`Transaction failed: ${JSON.stringify(value.err)}`);
+
+  let confirmation: RpcResponseAndContext<SignatureResult>;
+  try {
+    confirmation = await connection.confirmTransaction(
+      {
+        signature,
+        // The blockhash actually embedded in this transaction -- the one
+        // `lastValidBlockHeight` was computed against by the order response --
+        // not a freshly fetched one, which would pair a stale height with an
+        // unrelated blockhash.
+        blockhash: tx.message.recentBlockhash,
+        lastValidBlockHeight,
+        abortSignal: controller.signal,
+      },
+      "confirmed",
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new SubmitError(message, signature);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (confirmation.value.err) {
+    throw new SubmitError(
+      `Transaction failed: ${JSON.stringify(confirmation.value.err)}`,
+      signature,
+    );
+  }
   return signature;
 }
