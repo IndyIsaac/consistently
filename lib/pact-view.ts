@@ -1,0 +1,128 @@
+import { dayKeyFor, isValidSession, type RuleConfig, type SessionRecord } from "@/lib/rules";
+
+/**
+ * View helpers shared by every screen that draws a pact. Pure functions over the
+ * same shapes the API routes return, so nothing here has to change when the mock
+ * session is deleted and real rows arrive.
+ */
+
+/**
+ * One cell of the day-marker row — the product's most repeated shape.
+ *
+ * DESIGN.md defines exactly three states, and there is deliberately no fourth for
+ * "a past day with nothing on it". Under a `cadence` -times-a-week rule no single
+ * day was ever owed, so an empty past day is not a miss; it is simply unrecorded,
+ * and it ghosts like an unreached one. The standing line carries the judgement.
+ */
+export type DayMark = {
+  /** The crew-local calendar date, e.g. "2026-08-27". */
+  key: string;
+  /** Single-letter column head, Monday first. */
+  label: string;
+  state: "done" | "today" | "ghost";
+  isToday: boolean;
+};
+
+const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+
+/**
+ * Steps a bare calendar day key by `n` days. Day keys carry no timezone — they
+ * are already the crew's local date, produced by `dayKeyFor` — so UTC arithmetic
+ * on them is safe and DST-free. Same reasoning as `prevDayKey` in lib/stats.ts.
+ */
+function addDays(key: string, n: number): string {
+  const d = new Date(`${key}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The seven day keys of the crew-local week containing `now`, Monday first. */
+export function weekDayKeys(timezone: string, now: Date): string[] {
+  const todayKey = dayKeyFor(now, timezone);
+  const dayOfWeek = new Date(`${todayKey}T00:00:00.000Z`).getUTCDay(); // 0 = Sunday
+  const monday = addDays(todayKey, dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+}
+
+export function weekDayMarks(
+  sessions: SessionRecord[],
+  rule: RuleConfig,
+  timezone: string,
+  now: Date,
+): DayMark[] {
+  const todayKey = dayKeyFor(now, timezone);
+  const done = new Set(
+    sessions
+      .filter((s) => isValidSession(s, rule, timezone))
+      .map((s) => dayKeyFor(s.startedAt, timezone)),
+  );
+
+  return weekDayKeys(timezone, now).map((key, i) => ({
+    key,
+    label: DAY_LABELS[i],
+    state: done.has(key) ? "done" : key === todayKey ? "today" : "ghost",
+    isToday: key === todayKey,
+  }));
+}
+
+export function isTodayDone(marks: DayMark[]): boolean {
+  return marks.some((m) => m.isToday && m.state === "done");
+}
+
+const COUNT_WORDS = ["None", "One", "Two", "Three", "Four", "Five", "Six", "Seven"];
+
+/** Spells small counts, which read better than digits inside a sentence. */
+export function spell(n: number): string {
+  return COUNT_WORDS[n] ?? String(n);
+}
+
+export function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+}
+
+function sentenceCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** The rule in three flat clauses: how often, how long, what counts as proof. */
+export function ruleSentence(rule: RuleConfig): string {
+  const cadence = `${spell(rule.cadence).toLowerCase()} ${
+    rule.cadence === 1 ? "day" : "days"
+  } a ${rule.period}`;
+
+  const mins = rule.minDurationMins;
+  const duration =
+    mins === null
+      ? null
+      : mins % 60 === 0
+        ? `${spell(mins / 60).toLowerCase()} ${mins === 60 ? "hour" : "hours"}`
+        : `${mins} minutes`;
+
+  const proof = rule.proof === "photo" ? "photo proof" : "taken on your word";
+
+  return [cadence, duration, proof]
+    .filter((part): part is string => part !== null)
+    .map(sentenceCase)
+    .join(". ")
+    .concat(".");
+}
+
+/** Days still available in the crew-local week, counting today. */
+export function daysLeft(marks: DayMark[]): number {
+  const todayIndex = marks.findIndex((m) => m.isToday);
+  if (todayIndex < 0) return 0;
+  return marks.length - todayIndex - (isTodayDone(marks) ? 1 : 0);
+}
+
+/**
+ * The record, stated. It does not congratulate and it does not scold — it says
+ * what is left and whether today has happened.
+ */
+export function standingLine(daysDone: number, required: number, todayDone: boolean): string {
+  const short = required - daysDone;
+  if (short <= 0) return "Made. The rest is yours.";
+  if (todayDone) return `${spell(short)} to go.`;
+  return `${spell(short)} to go. Today is not done.`;
+}

@@ -1,0 +1,51 @@
+import { cn } from "@/lib/utils";
+
+/**
+ * The card of DESIGN.md: white, a 1px hairline border, a 22px radius, 24px of
+ * padding and no drop shadow beyond a whisper. It separates content; it does not
+ * decorate it, and it is never nested inside another one.
+ *
+ * Deliberately not shadcn's `Card`, whose ring-and-14px-radius treatment belongs
+ * to a different world. The shadcn primitives that *are* used here (Avatar,
+ * Button) read the palette from `:root` in app/globals.css.
+ */
+export function Panel({
+  className,
+  ...props
+}: React.ComponentProps<"section">) {
+  return (
+    <section
+      className={cn(
+        "rounded-[22px] border border-hairline bg-ground p-6",
+        "shadow-[0_1px_3px_-1px_rgba(10,10,10,0.06)]",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** Labels: 11px, uppercase, 0.12em of tracking, grey. */
+export function FieldLabel({
+  className,
+  ...props
+}: React.ComponentProps<"p">) {
+  return (
+    <p
+      className={cn(
+        "text-[11px] font-medium uppercase tracking-[0.12em] text-grey-on-white",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** The soft break inside a card. Dashed at 1px, per DESIGN.md. */
+export function DashedRule({ className }: { className?: string }) {
+  return (
+    <hr
+      className={cn("border-0 border-t border-dashed border-hairline", className)}
+    />
+  );
+}

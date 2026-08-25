@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Consistently
 
-## Getting Started
+A group agrees a rule and each member stakes real money on keeping it. Whoever breaks the
+rule forfeits their stake to the people who kept it, automatically, without anyone having to
+ask.
 
-First, run the development server:
+See `PRODUCT.md` for what it is and `DESIGN.md` for what it looks like.
+
+## Running it
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**No environment variables are required to see the app.** There is no database call, no
+Privy app id and no wallet on the path from the landing page to the dashboard.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## The dev mock session
 
-## Learn More
+Every signed-in screen reads `lib/mock-session.ts` — a signed-in user with two pacts, four
+and two members, mid-week, in Thai baht. It is the builder's own situation.
 
-To learn more about Next.js, take a look at the following resources:
+To delete the mock, delete that file. Three call sites break, and each one is the exact place
+a real query belongs:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Call site | Replace with |
+|---|---|
+| `app/(app)/dashboard/page.tsx` | the signed-in user's pacts |
+| `app/(app)/groups/page.tsx` | the signed-in user's memberships |
+| `app/(app)/pacts/[id]/page.tsx` | `GET /api/pacts/[id]/view` |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Nothing in it invents a shape: crew rows extend `LeaderRow` from `lib/stats.ts` and are
+produced by the real `leaderboard()` over real `SessionRecord`s; the pact and user carry the
+Prisma column names from `prisma/schema.prisma`.
 
-## Deploy on Vercel
+The mock clock is frozen (`MOCK_NOW`) so the screens compose the same way every time.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Sign-in
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Privy, email and a six-digit code. No password, therefore no 2FA.
+
+`NEXT_PUBLIC_PRIVY_APP_ID` is read at build time. **With no app id set the flow keeps its real
+shape but runs its own timings and hands you the mock session: any six digits are accepted.**
+Set the app id and the guard in `components/FrontDoor.tsx` is where the real
+`useLoginWithEmail()` calls go.
+
+**The Google button is not wired and will not be.** It is rendered visibly unavailable —
+disabled, dashed, labelled `NOT WIRED` — rather than live, on purpose: a dead button someone
+presses on stage is worse than no button.
+
+## Known limitations
+
+- **No authentication in v1.** Requests name a wallet and are believed.
+- Solana only. Tokens on other chains and balances on centralised exchanges are unreachable.
+- Stakes are custodied per-pact in a server-held encrypted vault; a non-custodial escrow
+  program is the production answer and is not built.
+- Members bring their own crypto. There is no fiat on-ramp.
+
+## Checks
+
+```bash
+npx tsc --noEmit
+npx vitest run
+```
