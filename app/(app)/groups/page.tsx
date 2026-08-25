@@ -18,10 +18,10 @@ function GroupRow({ pact }: { pact: MockPact }) {
     <li>
       <Link
         href={`/pacts/${pact.id}`}
-        className="group relative block rounded-[22px] border border-hairline bg-ground p-6 shadow-[0_1px_3px_-1px_rgba(10,10,10,0.06)] transition-[border-color,box-shadow] duration-200 hover:border-ink/30 hover:shadow-[0_6px_18px_-10px_rgba(10,10,10,0.25)] sm:py-5"
+        className="group relative block rounded-[22px] border border-hairline bg-panel p-6 shadow-panel transition-[border-color,box-shadow] duration-200 hover:border-ink/30 hover:shadow-panel-hover sm:py-5"
       >
         <ChevronRight
-          className="absolute top-6 right-6 size-5 text-grey-on-white transition-transform duration-200 group-hover:translate-x-0.5 sm:top-1/2 sm:-translate-y-1/2 sm:group-hover:translate-x-0.5"
+          className="absolute top-6 right-6 size-5 text-grey-on-ground transition-transform duration-200 group-hover:translate-x-0.5 sm:top-1/2 sm:-translate-y-1/2 sm:group-hover:translate-x-0.5"
           aria-hidden="true"
         />
 
@@ -30,7 +30,7 @@ function GroupRow({ pact }: { pact: MockPact }) {
             <h2 className="truncate text-[17px] font-bold tracking-[-0.02em] text-ink">
               {pact.name}
             </h2>
-            <p className="mt-1 text-[13px] text-grey-on-white">
+            <p className="mt-1 text-[13px] text-grey-on-ground">
               {ruleSentence(pact.ruleConfig)}
             </p>
           </div>
@@ -53,14 +53,14 @@ function GroupRow({ pact }: { pact: MockPact }) {
                 <>
                   <p className="figure text-[15px] font-semibold text-ink">
                     {me.daysDone}
-                    <span className="font-normal text-grey-on-white"> of {me.required}</span>
+                    <span className="font-normal text-grey-on-ground"> of {me.required}</span>
                   </p>
-                  <p className="mt-0.5 text-[13px] text-grey-on-white">
+                  <p className="mt-0.5 text-[13px] text-grey-on-ground">
                     this week · {ordinal(rank + 1)} of {pact.crew.length}
                   </p>
                 </>
               ) : (
-                <p className="text-[13px] text-grey-on-white">Not staked</p>
+                <p className="text-[13px] text-grey-on-ground">Not staked</p>
               )}
             </div>
 
@@ -68,7 +68,7 @@ function GroupRow({ pact }: { pact: MockPact }) {
               <p className="figure text-[15px] font-semibold text-ink">
                 {formatMoney(pact.stakeAmount, pact.stakeCurrency)}
               </p>
-              <p className="mt-0.5 text-[13px] text-grey-on-white">a {pact.ruleConfig.period}</p>
+              <p className="mt-0.5 text-[13px] text-grey-on-ground">a {pact.ruleConfig.period}</p>
             </div>
           </div>
         </div>
@@ -87,7 +87,7 @@ export default async function GroupsPage() {
         {pacts.length === 0 ? "No crews." : `${spell(pacts.length)} crews.`}
       </h1>
 
-      <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-white">
+      <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-ground">
         {pacts.length === 0
           ? "Nothing agreed, nothing at stake. A pact starts with a rule and a number."
           : `${formatMoney(onThisWeek, currency)} rides on this week.`}
@@ -96,7 +96,7 @@ export default async function GroupsPage() {
       {pacts.length === 0 ? (
         <Panel className="mt-10">
           <p className="text-[15px] text-ink">You are not in a crew yet.</p>
-          <p className="mt-2 text-[14px] text-grey-on-white">
+          <p className="mt-2 text-[14px] text-grey-on-ground">
             Someone sends you a link, you agree the rule, you stake. That is the whole of it.
           </p>
         </Panel>

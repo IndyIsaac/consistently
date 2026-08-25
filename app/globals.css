@@ -10,21 +10,125 @@
    Red and green appear ONLY against money: red for what you lost, green for
    what you gained. Nothing else in the interface is coloured — not status, not
    streaks, not navigation.
+
+   Two grounds, and they are always opposite. The interior takes the theme; the
+   front door takes its inverse, so crossing the threshold is a flip of value in
+   either theme. `--door` and `--door-ink` are that inverse, named once here so
+   components/FrontDoor.tsx never has to know which theme it is in.
+
+   Every literal colour in the product is written in the two blocks below and
+   nowhere else. Everything past them is a role.
    --------------------------------------------------------------------------- */
-@theme {
-  --color-ground: #ffffff;
-  --color-ink: #0a0a0a;
-  --color-hairline: #e5e5e5;
-  --color-surface: #f5f5f5;
-  --color-owed: #b42318;
-  --color-earned: #067647;
+:root {
+  color-scheme: light;
+
+  --ground: #ffffff;
+  /* Cards. Equal to the ground in light; lifted off it in dark. */
+  --panel: #ffffff;
+  --ink: #0a0a0a;
+  --hairline: #e5e5e5;
+  --surface: #f5f5f5;
+  --owed: #b42318;
+  --earned: #067647;
 
   /* One secondary grey per ground. DESIGN's `muted` (#737373) clears 4.5:1 on
-     white but not on `surface` or on `ink`, so those two grounds get the
-     nearest value that does. Same role, three legible values. */
-  --color-grey-on-white: #737373;
-  --color-grey-on-surface: #6b6b6b;
-  --color-grey-on-ink: #8f8f8f;
+     white but not on `surface`, so that ground gets the nearest value that
+     does. Same role, two legible values. */
+  --grey-on-ground: #737373;
+  --grey-on-surface: #6b6b6b;
+
+  /* The front door: near-black ground, bone text. */
+  --door: #0a0a0a;
+  --door-ink: #fafafa;
+  --grey-on-door: #8f8f8f;
+
+  /* The limelight over the active tab is a light source, so it is the value of
+     `ink`: dark light on a white pill, bone light on a dark one. Kept as an
+     unwrapped triple because the cone and the pool are gradients. */
+  --limelight: 10 10 10;
+
+  /* The sweep across a loading shape. A white sweep is right over #E5E5E5 and
+     far too bright over #262626, so it carries its own value per theme. */
+  --shimmer: rgba(255, 255, 255, 0.72);
+
+  /* No drop shadow beyond a whisper, per DESIGN.md. On the dark ground a
+     near-black whisper says nothing, so the shadows deepen rather than lighten:
+     the lift there comes from `--panel`, and the shadow only seats it. */
+  --elevation-panel: 0 1px 3px -1px rgba(10, 10, 10, 0.06);
+  --elevation-panel-hover: 0 6px 18px -10px rgba(10, 10, 10, 0.25);
+  --elevation-nav: 0 16px 40px -20px rgba(10, 10, 10, 0.35);
+
+  --scrollbar-thumb-hover: #d4d4d4;
+
+  /* The theme toggle is a small physical object rather than a surface: a dark
+     track and a light knob, the same material in either theme. It is the one
+     thing in the product that does not flip, because flipping it would mean the
+     control stopped depicting what it switches between. */
+  --toggle-track: #0a0a0a;
+  --toggle-knob: #fafafa;
+  --toggle-idle: #8a8a8a;
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Never pure black: the ground is lifted so cards can sit above it. */
+  --ground: #0c0c0d;
+  --panel: #111112;
+  --ink: #fafafa;
+  --hairline: #262626;
+  --surface: #171718;
+
+  /* The money colours shift with the theme and are not optional. #B42318 on
+     #0C0C0D is 1.8:1 — a forfeited stake nobody can read. These are 7.02:1 and
+     9.65:1 against the dark ground. */
+  --owed: #f97066;
+  --earned: #47cd89;
+
+  /* One value clears 4.5:1 on all three dark grounds, so there is only one. */
+  --grey-on-ground: #8a8a8a;
+  --grey-on-surface: #8a8a8a;
+
+  /* Inverted: bone ground, near-black text. */
+  --door: #fafafa;
+  --door-ink: #0a0a0a;
+  --grey-on-door: #6b6b6b;
+
+  --limelight: 250 250 250;
+  --shimmer: rgba(250, 250, 250, 0.1);
+
+  --elevation-panel: 0 1px 2px 0 rgba(0, 0, 0, 0.55);
+  --elevation-panel-hover: 0 8px 22px -12px rgba(0, 0, 0, 0.8);
+  --elevation-nav: 0 16px 40px -18px rgba(0, 0, 0, 0.85);
+
+  --scrollbar-thumb-hover: #3a3a3c;
+}
+
+/* Inlined, so each utility resolves the role at its own use site and the two
+   blocks above are the only switch. */
+@theme inline {
+  --color-ground: var(--ground);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-hairline: var(--hairline);
+  --color-surface: var(--surface);
+  --color-owed: var(--owed);
+  --color-earned: var(--earned);
+
+  --color-grey-on-ground: var(--grey-on-ground);
+  --color-grey-on-surface: var(--grey-on-surface);
+
+  --color-door: var(--door);
+  --color-door-ink: var(--door-ink);
+  --color-grey-on-door: var(--grey-on-door);
+
+  --color-toggle-track: var(--toggle-track);
+  --color-toggle-knob: var(--toggle-knob);
+  --color-toggle-idle: var(--toggle-idle);
+
+  --shadow-panel: var(--elevation-panel);
+  --shadow-panel-hover: var(--elevation-panel-hover);
+  --shadow-nav: var(--elevation-nav);
 }
 
 @theme inline {
@@ -71,75 +175,43 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* The shadcn primitives read these, so they are pinned to the same palette the
-   rest of the product uses. Change the palette above, not these. */
-:root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
-  --card: #ffffff;
-  --card-foreground: #0a0a0a;
-  --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
-  --primary: #0a0a0a;
-  --primary-foreground: #ffffff;
-  --secondary: #f5f5f5;
-  --secondary-foreground: #0a0a0a;
-  --muted: #f5f5f5;
-  --muted-foreground: #737373;
-  --accent: #f5f5f5;
-  --accent-foreground: #0a0a0a;
-  --destructive: #b42318;
-  --border: #e5e5e5;
-  --input: #e5e5e5;
-  --ring: #0a0a0a;
+/* The shadcn primitives read these, so they are pinned to the same roles the
+   rest of the product uses and follow the theme with it. Change the two blocks
+   at the top of this file, not these. */
+:root,
+.dark {
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--panel);
+  --card-foreground: var(--ink);
+  --popover: var(--panel);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--ground);
+  --secondary: var(--surface);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface);
+  --muted-foreground: var(--grey-on-surface);
+  --accent: var(--surface);
+  --accent-foreground: var(--ink);
+  --destructive: var(--owed);
+  --border: var(--hairline);
+  --input: var(--hairline);
+  --ring: var(--ink);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: var(--panel);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--ground);
+  --sidebar-accent: var(--surface);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--hairline);
+  --sidebar-ring: var(--ink);
 }
 
 @layer base {
@@ -160,32 +232,32 @@
      product never falls back to a system blue. */
 
   ::selection {
-    background-color: var(--color-ink);
-    color: var(--color-ground);
+    background-color: var(--ink);
+    color: var(--ground);
   }
 
-  /* The dark front door inverts it — see app/page.tsx. */
-  .on-ink ::selection {
-    background-color: var(--color-ground);
-    color: var(--color-ink);
+  /* The front door runs on the opposite ground — see app/page.tsx. */
+  .on-door ::selection {
+    background-color: var(--door-ink);
+    color: var(--door);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-ink);
+    outline: 2px solid var(--ink);
     outline-offset: 3px;
   }
 
-  .on-ink :focus-visible {
-    outline-color: var(--color-ground);
+  .on-door :focus-visible {
+    outline-color: var(--door-ink);
   }
 
   input,
   textarea {
-    caret-color: var(--color-ink);
+    caret-color: var(--ink);
   }
 
-  .on-ink input {
-    caret-color: var(--color-ground);
+  .on-door input {
+    caret-color: var(--door-ink);
   }
 
   a {
@@ -194,7 +266,7 @@
 
   html {
     scrollbar-width: thin;
-    scrollbar-color: #d4d4d4 transparent;
+    scrollbar-color: var(--hairline) transparent;
   }
 
   ::-webkit-scrollbar {
@@ -207,14 +279,14 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: var(--color-hairline);
+    background-color: var(--hairline);
     border: 3px solid transparent;
     background-clip: content-box;
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: #d4d4d4;
+    background-color: var(--scrollbar-thumb-hover);
   }
 
   /* Figures are compared down a column all over this product. */

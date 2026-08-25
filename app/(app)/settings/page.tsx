@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AppearanceSetting } from "@/components/AppearanceSetting";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 // MOCK: swap for the signed-in Privy user. See lib/mock-session.ts.
 import { getSession } from "@/lib/mock-session";
@@ -16,7 +17,7 @@ export default async function SettingsPage() {
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-8 sm:px-8 sm:pt-10">
       <Link
         href="/dashboard"
-        className="inline-flex items-center gap-1.5 rounded-sm text-[13px] text-grey-on-white transition-colors hover:text-ink"
+        className="inline-flex items-center gap-1.5 rounded-sm text-[13px] text-grey-on-ground transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
         Dashboard
@@ -37,7 +38,7 @@ export default async function SettingsPage() {
             <p className="truncate text-[17px] font-bold tracking-[-0.02em] text-ink">
               {user.displayName}
             </p>
-            <p className="figure mt-0.5 text-[13px] text-grey-on-white">{wallet}</p>
+            <p className="figure mt-0.5 text-[13px] text-grey-on-ground">{wallet}</p>
           </div>
         </div>
 
@@ -45,13 +46,17 @@ export default async function SettingsPage() {
 
         <div className="mt-6">
           <FieldLabel>Profile photo, linked socials</FieldLabel>
-          <p className="mt-2 text-[14px] text-grey-on-white">Not built yet.</p>
+          <p className="mt-2 text-[14px] text-grey-on-ground">Not built yet.</p>
         </div>
+      </Panel>
+
+      <Panel className="mt-4 max-w-[32rem]">
+        <AppearanceSetting />
       </Panel>
 
       <Panel className="mt-4 max-w-[32rem] border-dashed">
         <FieldLabel>This session</FieldLabel>
-        <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-white">
+        <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-ground">
           No Privy app id is set, so nobody is really signed in. Every screen is reading{" "}
           <span className="font-mono text-[13px] text-ink">lib/mock-session.ts</span>. Delete
           that file to delete the mock.

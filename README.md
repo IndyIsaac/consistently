@@ -51,6 +51,30 @@ Set the app id and the guard in `components/FrontDoor.tsx` is where the real
 disabled, dashed, labelled `NOT WIRED` — rather than live, on purpose: a dead button someone
 presses on stage is worse than no button.
 
+## Themes
+
+Light and dark, switched from Settings. The choice is kept in `localStorage`; with nothing
+kept, the system preference decides. A small script in `app/layout.tsx` settles it before the
+first paint, so the page never flashes the wrong ground.
+
+**The landing is deliberately the inverse of the app.** Light app, black front door; dark app,
+bone front door. That flip of value — alongside the flip from mono to the app's grotesque — is
+what makes signing in read as arrival, and it is the reason dark mode exists here at all. It
+is not a bug.
+
+Every colour is a role defined twice in `app/globals.css`, once per theme, and nowhere else.
+The money colours change between them: `#B42318` on the dark ground is 1.8:1, so dark uses
+`#F97066` (7.0:1) and `#47CD89` (9.7:1).
+
+## The device preview
+
+`/preview` renders the running app inside a Galaxy S25 Ultra or an iPhone 16 Pro, live and
+navigable, so proportions can be judged and the demo recorded without a screen recorder's
+chrome. There is a light/dark switch beside the device switch.
+
+**It is a development surface, not product.** Nothing links to it, it is not indexed, and
+deleting `app/preview/` removes all of it.
+
 ## Known limitations
 
 - **No authentication in v1.** Requests name a wallet and are believed.

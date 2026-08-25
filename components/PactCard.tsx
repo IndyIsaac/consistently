@@ -39,17 +39,17 @@ export function PactCard({ pact, now }: { pact: PactCardPact; now: Date }) {
         <h2 className="truncate text-[15px] font-bold tracking-[-0.015em] text-ink">
           {pact.name}
         </h2>
-        <span className="shrink-0 text-[13px] text-grey-on-white">
+        <span className="shrink-0 text-[13px] text-grey-on-ground">
           {ordinal(rank + 1)} of {pact.crew.length}
         </span>
       </div>
 
       <p className="figure mt-5 text-[3rem] leading-[0.95] font-extrabold text-ink">
         {me.daysDone}
-        <span className="text-grey-on-white"> of {me.required}</span>
+        <span className="text-grey-on-ground"> of {me.required}</span>
       </p>
 
-      <p className="mt-2.5 text-[14px] text-grey-on-white">
+      <p className="mt-2.5 text-[14px] text-grey-on-ground">
         {standingLine(me.daysDone, me.required, todayDone)}
       </p>
 

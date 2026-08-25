@@ -17,6 +17,9 @@ const TABS = [
  * edge above the active icon, casting a soft cone down over it and pooling on
  * the floor beneath. Bar, cone and pool are one element, so they travel together
  * on a single spring rather than three animations that can drift apart.
+ *
+ * The lamp is the value of `ink`, so on the dark ground it throws a bone cone
+ * rather than a near-black one that would be invisible.
  */
 export function BottomNav() {
   const pathname = usePathname();
@@ -31,7 +34,7 @@ export function BottomNav() {
       aria-label="Sections"
       className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
     >
-      <div className="pointer-events-auto relative flex h-[68px] w-[240px] overflow-hidden rounded-[26px] border border-hairline bg-ground/85 shadow-[0_16px_40px_-20px_rgba(10,10,10,0.35)] backdrop-blur-xl sm:w-[272px]">
+      <div className="pointer-events-auto relative flex h-[68px] w-[240px] overflow-hidden rounded-[26px] border border-hairline bg-panel/85 shadow-nav backdrop-blur-xl sm:w-[272px]">
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute inset-y-0 left-0 w-1/2"
@@ -55,7 +58,7 @@ export function BottomNav() {
             style={{
               clipPath: "polygon(32% 0, 68% 0, 88% 100%, 12% 100%)",
               backgroundImage:
-                "linear-gradient(to bottom, rgba(10,10,10,0.14), rgba(10,10,10,0.05) 46%, rgba(10,10,10,0) 88%)",
+                "linear-gradient(to bottom, rgb(var(--limelight) / 0.14), rgb(var(--limelight) / 0.05) 46%, rgb(var(--limelight) / 0) 88%)",
             }}
           />
 
@@ -64,7 +67,7 @@ export function BottomNav() {
             className="absolute bottom-1.5 left-1/2 h-4 w-16 -translate-x-1/2 blur-[6px]"
             style={{
               backgroundImage:
-                "radial-gradient(ellipse at center, rgba(10,10,10,0.20), rgba(10,10,10,0) 68%)",
+                "radial-gradient(ellipse at center, rgb(var(--limelight) / 0.20), rgb(var(--limelight) / 0) 68%)",
             }}
           />
         </motion.div>
@@ -81,7 +84,7 @@ export function BottomNav() {
               <tab.Icon
                 className={cn(
                   "size-[22px] transition-colors duration-200",
-                  active ? "text-ink" : "text-grey-on-white",
+                  active ? "text-ink" : "text-grey-on-ground",
                 )}
                 strokeWidth={active ? 2 : 1.75}
                 aria-hidden="true"
@@ -89,7 +92,7 @@ export function BottomNav() {
               <span
                 className={cn(
                   "text-[10px] uppercase tracking-[0.14em] transition-colors duration-200",
-                  active ? "font-semibold text-ink" : "text-grey-on-white",
+                  active ? "font-semibold text-ink" : "text-grey-on-ground",
                 )}
               >
                 {tab.label}

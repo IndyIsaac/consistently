@@ -7,8 +7,12 @@ import { Lock, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
- * The dark front door. One line, one press, then the code — and then the white
- * world, which the app never leaves again.
+ * The front door, and the one surface that takes the inverse of the app's
+ * theme: near-black under a light app, bone under a dark one. One line, one
+ * press, then the code — and then the interior, which the app never leaves.
+ *
+ * Nothing here names a value. `door` and `door-ink` are the flip, and every
+ * alpha ramp below rides on them, so the whole surface inverts as one.
  *
  * Privy is the real mechanism: email, then a six-digit code, no password and so
  * no 2FA. `NEXT_PUBLIC_PRIVY_APP_ID` is inlined at build time; with nothing to
@@ -161,12 +165,12 @@ export function FrontDoor() {
   };
 
   return (
-    <div className="on-ink relative flex min-h-dvh flex-1 flex-col overflow-hidden overscroll-none bg-ink font-mono text-white">
+    <div className="on-door relative flex min-h-dvh flex-1 flex-col overflow-hidden overscroll-none bg-door font-mono text-door-ink">
       {/* The slot below the line reserves its tallest state, so the block never
           changes height and the line never moves when the panel opens. */}
       <main className="mx-auto flex w-full max-w-[34rem] flex-1 flex-col justify-center px-6 py-16">
-        <h1 className="text-[clamp(1.6rem,7.5vw,3rem)] leading-[1.1] font-medium tracking-[-0.03em] whitespace-nowrap text-white/65">
-          Stay consistent<span className="text-white">.</span>
+        <h1 className="text-[clamp(1.6rem,7.5vw,3rem)] leading-[1.1] font-medium tracking-[-0.03em] whitespace-nowrap text-door-ink/65">
+          Stay consistent<span className="text-door-ink">.</span>
         </h1>
 
         <div className="mt-10 min-h-[17.5rem] max-w-[23rem]">
@@ -176,7 +180,7 @@ export function FrontDoor() {
                 <button
                   type="button"
                   onClick={() => setStep("email")}
-                  className="rounded-full border border-white/25 px-8 py-3.5 text-[11px] tracking-[0.32em] text-white transition-colors duration-200 hover:border-white hover:bg-white hover:text-ink"
+                  className="rounded-full border border-door-ink/25 px-8 py-3.5 text-[11px] tracking-[0.32em] text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door"
                 >
                   START
                 </button>
@@ -187,13 +191,13 @@ export function FrontDoor() {
               <motion.form key="email" {...sceneMotion} onSubmit={submitEmail} noValidate>
                 <label
                   htmlFor="email"
-                  className="block text-[11px] tracking-[0.24em] text-grey-on-ink uppercase"
+                  className="block text-[11px] tracking-[0.24em] text-grey-on-door uppercase"
                 >
                   Email
                 </label>
 
-                <div className="mt-3 flex items-center gap-2 border-b border-white/20 transition-colors focus-within:border-white">
-                  <span aria-hidden="true" className="text-white/40 select-none">
+                <div className="mt-3 flex items-center gap-2 border-b border-door-ink/20 transition-colors focus-within:border-door-ink">
+                  <span aria-hidden="true" className="text-door-ink/40 select-none">
                     &gt;
                   </span>
                   <input
@@ -207,7 +211,7 @@ export function FrontDoor() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     aria-invalid={error !== null}
-                    className="w-full bg-transparent py-3 text-[15px] text-white outline-none placeholder:text-white/30"
+                    className="w-full bg-transparent py-3 text-[15px] text-door-ink outline-none placeholder:text-grey-on-door"
                   />
                 </div>
 
@@ -228,10 +232,10 @@ export function FrontDoor() {
                   void enter(digits.join(""));
                 }}
               >
-                <p className="text-[11px] tracking-[0.24em] text-grey-on-ink uppercase">
+                <p className="text-[11px] tracking-[0.24em] text-grey-on-door uppercase">
                   Six digits
                 </p>
-                <p className="mt-3 truncate text-[13px] text-white/70">Sent to {email}.</p>
+                <p className="mt-3 truncate text-[13px] text-door-ink/70">Sent to {email}.</p>
 
                 <div className="mt-5 flex gap-2" role="group" aria-label="Six-digit code">
                   {digits.map((digit, i) => (
@@ -250,7 +254,7 @@ export function FrontDoor() {
                       autoFocus={i === 0}
                       autoComplete={i === 0 ? "one-time-code" : "off"}
                       aria-label={`Digit ${i + 1} of ${CODE_LENGTH}`}
-                      className="h-[3.25rem] w-full min-w-0 rounded-xl border border-white/20 bg-white/[0.04] text-center text-[19px] text-white outline-none transition-colors focus:border-white"
+                      className="h-[3.25rem] w-full min-w-0 rounded-xl border border-door-ink/20 bg-door-ink/[0.04] text-center text-[19px] text-door-ink outline-none transition-colors focus:border-door-ink"
                     />
                   ))}
                 </div>
@@ -268,13 +272,13 @@ export function FrontDoor() {
                       setStep("email");
                       setError(null);
                     }}
-                    className="self-start rounded-sm text-[12px] text-white/50 underline decoration-white/25 transition-colors hover:text-white"
+                    className="self-start rounded-sm text-[12px] text-door-ink/65 underline decoration-door-ink/25 transition-colors hover:text-door-ink"
                   >
                     Use another address
                   </button>
 
                   {!PRIVY_CONFIGURED && (
-                    <p className="text-[12px] leading-relaxed text-grey-on-ink">
+                    <p className="text-[12px] leading-relaxed text-grey-on-door">
                       No Privy app id is set. Any six digits will do.
                     </p>
                   )}
@@ -285,8 +289,9 @@ export function FrontDoor() {
         </div>
       </main>
 
-      {/* Crossing the threshold: the black door is wiped away by the white world
-          it opens onto. app/(app)/layout.tsx picks the movement up on the far side. */}
+      {/* Crossing the threshold: the door is wiped away by the interior it opens
+          onto — and the interior is always the opposite value, in either theme.
+          app/(app)/layout.tsx picks the movement up on the far side. */}
       <AnimatePresence>
         {step === "arriving" && !reduceMotion && (
           <motion.div
@@ -306,7 +311,7 @@ export function FrontDoor() {
 function FormError({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <p role="alert" className="mt-3 flex items-start gap-2 text-[12px] leading-relaxed text-white">
+    <p role="alert" className="mt-3 flex items-start gap-2 text-[12px] leading-relaxed text-door-ink">
       <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
       {message}
     </p>
@@ -327,11 +332,11 @@ function SubmitButton({
       type="submit"
       disabled={busy || disabled}
       className={cn(
-        "mt-6 w-full rounded-full border border-transparent bg-white py-3.5 text-[11px] tracking-[0.28em] text-ink",
+        "mt-6 w-full rounded-full border border-transparent bg-door-ink py-3.5 text-[11px] tracking-[0.28em] text-door",
         "transition-[opacity,background-color,color,border-color] duration-200 hover:opacity-85",
-        // Not a dimmed white pill — that still out-shouts the field above it.
+        // Not a dimmed solid pill — that still out-shouts the field above it.
         // An outline reads as "not yet" without competing for the eye.
-        "disabled:cursor-not-allowed disabled:border-white/15 disabled:bg-transparent disabled:text-white/40 disabled:hover:opacity-100",
+        "disabled:cursor-not-allowed disabled:border-door-ink/15 disabled:bg-transparent disabled:text-door-ink/40 disabled:hover:opacity-100",
       )}
     >
       {children}
@@ -342,9 +347,9 @@ function SubmitButton({
 function OrRule() {
   return (
     <div className="my-6 flex items-center gap-4">
-      <span className="h-px flex-1 bg-white/15" />
-      <span className="text-[10px] tracking-[0.24em] text-grey-on-ink uppercase">or</span>
-      <span className="h-px flex-1 bg-white/15" />
+      <span className="h-px flex-1 bg-door-ink/15" />
+      <span className="text-[10px] tracking-[0.24em] text-grey-on-door uppercase">or</span>
+      <span className="h-px flex-1 bg-door-ink/15" />
     </div>
   );
 }
@@ -360,11 +365,11 @@ function GoogleButton() {
       disabled
       aria-disabled="true"
       title="Google sign-in is not wired and will not be."
-      className="flex w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-full border border-dashed border-white/20 py-3.5 text-white/55"
+      className="flex w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-full border border-dashed border-door-ink/20 py-3.5 text-door-ink/55"
     >
       <Lock className="size-3.5" aria-hidden="true" />
       <span className="text-[13px] tracking-[0.04em]">Google</span>
-      <span className="text-[10px] tracking-[0.2em] text-white/40 uppercase">not wired</span>
+      <span className="text-[10px] tracking-[0.2em] text-door-ink/40 uppercase">not wired</span>
     </button>
   );
 }

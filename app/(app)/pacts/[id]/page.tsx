@@ -23,7 +23,7 @@ export default async function PactPage({ params }: { params: Promise<{ id: strin
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-8 sm:px-8 sm:pt-10">
       <Link
         href="/groups"
-        className="inline-flex items-center gap-1.5 rounded-sm text-[13px] text-grey-on-white transition-colors hover:text-ink"
+        className="inline-flex items-center gap-1.5 rounded-sm text-[13px] text-grey-on-ground transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
         Groups
@@ -32,7 +32,7 @@ export default async function PactPage({ params }: { params: Promise<{ id: strin
       <h1 className="mt-6 text-[clamp(1.75rem,6vw,2.5rem)] leading-[1.05] font-extrabold tracking-[-0.035em] text-ink">
         {pact.name}
       </h1>
-      <p className="mt-3 text-[15px] text-grey-on-white">{ruleSentence(pact.ruleConfig)}</p>
+      <p className="mt-3 text-[15px] text-grey-on-ground">{ruleSentence(pact.ruleConfig)}</p>
 
       <div className="mt-7 flex items-center gap-4">
         <AvatarGroup>
@@ -44,7 +44,7 @@ export default async function PactPage({ params }: { params: Promise<{ id: strin
             </Avatar>
           ))}
         </AvatarGroup>
-        <span className="figure text-[13px] text-grey-on-white">
+        <span className="figure text-[13px] text-grey-on-ground">
           {formatMoney(pact.stakeAmount, pact.stakeCurrency)} each, a {pact.ruleConfig.period}
         </span>
       </div>
@@ -55,7 +55,7 @@ export default async function PactPage({ params }: { params: Promise<{ id: strin
           The bot&rsquo;s running commentary, the camera, the QR to hand round and the
           settlement notice all land here.
         </p>
-        <p className="mt-2 text-[14px] text-grey-on-white">Not built yet.</p>
+        <p className="mt-2 text-[14px] text-grey-on-ground">Not built yet.</p>
 
         <DashedRule className="mt-6" />
 

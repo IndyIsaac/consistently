@@ -40,7 +40,7 @@ export function CrewTable({ rows, className }: { rows: CrewRowData[]; className?
             <span
               className={cn(
                 "figure text-[13px]",
-                row.isViewer ? "text-grey-on-surface" : "text-grey-on-white",
+                row.isViewer ? "text-grey-on-surface" : "text-grey-on-ground",
               )}
             >
               {row.rank}
@@ -51,7 +51,7 @@ export function CrewTable({ rows, className }: { rows: CrewRowData[]; className?
                 className={cn(
                   "text-[12px] font-semibold tracking-[0.02em]",
                   row.isViewer
-                    ? "bg-ground text-grey-on-white"
+                    ? "bg-ground text-grey-on-ground"
                     : "bg-surface text-grey-on-surface",
                 )}
               >
@@ -66,7 +66,7 @@ export function CrewTable({ rows, className }: { rows: CrewRowData[]; className?
               <p
                 className={cn(
                   "truncate text-[13px]",
-                  row.isViewer ? "text-grey-on-surface" : "text-grey-on-white",
+                  row.isViewer ? "text-grey-on-surface" : "text-grey-on-ground",
                 )}
               >
                 {row.subline}

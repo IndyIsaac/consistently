@@ -35,7 +35,17 @@ function crewRows(pact: MockPact, now: Date): CrewRowData[] {
       figure: (
         <>
           {member.daysDone}
-          <span className="font-normal text-grey-on-white"> of {member.required}</span>
+          {/* The viewer's row is inset in `surface`, which #737373 does not clear
+              4.5:1 against. Same role, the value that ground needs. */}
+          <span
+            className={cn(
+              "font-normal",
+              member.isViewer ? "text-grey-on-surface" : "text-grey-on-ground",
+            )}
+          >
+            {" "}
+            of {member.required}
+          </span>
         </>
       ),
       isViewer: member.isViewer,
@@ -68,7 +78,7 @@ export default async function DashboardPage() {
         )}
       </h1>
 
-      <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-white">
+      <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-ground">
         {spell(settled)} weeks settled across {spell(pacts.length).toLowerCase()} crews.{" "}
         {formatMoney(onThisWeek, currency)} rides on this one.
       </p>
@@ -88,7 +98,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <p className="mt-4 text-[13px] text-grey-on-white">
+      <p className="mt-4 text-[13px] text-grey-on-ground">
         Nobody was asked for any of it.
       </p>
 
@@ -99,7 +109,7 @@ export default async function DashboardPage() {
 
         <Panel className="lg:col-span-2">
           <h2 className="text-[15px] font-bold tracking-[-0.015em] text-ink">Everyone</h2>
-          <p className="mt-1 text-[13px] text-grey-on-white">
+          <p className="mt-1 text-[13px] text-grey-on-ground">
             Both crews, as they stand this morning.
           </p>
 

@@ -77,7 +77,7 @@ export function DayMarkers({ days, className }: { days: DayMark[]; className?: s
           <span
             className={cn(
               "text-[11px] uppercase tracking-[0.12em]",
-              day.isToday ? "font-semibold text-ink" : "text-grey-on-white",
+              day.isToday ? "font-semibold text-ink" : "text-grey-on-ground",
             )}
             aria-hidden="true"
           >

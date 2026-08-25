@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import { Manrope, JetBrains_Mono } from "next/font/google";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 /**
  * Two registers, per DESIGN.md.
  *
- * `Manrope` is the one grotesque of the white world — everything past sign-in.
- * `JetBrains_Mono` belongs to the dark front door alone (app/page.tsx). Nothing
- * inside the app is set in mono.
+ * `Manrope` is the one grotesque of the interior — everything past sign-in.
+ * `JetBrains_Mono` belongs to the front door alone (app/page.tsx). Nothing
+ * inside the app is set in mono. Value and typeface flip together at the
+ * threshold, in either theme.
  */
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -35,8 +38,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${manrope.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      // The boot script below settles the theme on this element before React
+      // hydrates, so its class list is expected to differ from the server's.
+      suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col bg-ground text-ink">{children}</body>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
+      <body className="flex min-h-full flex-col bg-ground text-ink">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }
