@@ -6,6 +6,7 @@ import { SubmitError } from "@/lib/solana";
 import {
   buildStakeTransaction,
   finaliseStake,
+  previewStake,
   reopenForNextPeriod,
   StakeGuardError,
 } from "@/lib/stake";
@@ -13,8 +14,9 @@ import {
 /* ---------------------------------------------------------------------------
  * POST /api/pacts/[id]/stake
  *
- * Three steps, because the member's key is in their browser and the sponsor's
+ * Four steps, because the member's key is in their browser and the sponsor's
  * is here:
+ *   quote   -- what it costs, with no transaction and no blockhash to expire
  *   build   -- price it, size the input leg, return unsigned bytes
  *   submit  -- check it is ours, add the sponsor signature, put it on chain
  *   reopen  -- put a settled member back into funding for the next period
@@ -25,6 +27,7 @@ import {
  * ------------------------------------------------------------------------- */
 
 const BodySchema = z.discriminatedUnion("step", [
+  z.object({ step: z.literal("quote"), inputMint: z.string().min(32).max(44) }),
   z.object({ step: z.literal("build"), inputMint: z.string().min(32).max(44) }),
   z.object({
     step: z.literal("submit"),
@@ -50,11 +53,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const parsed = BodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "step must be build, submit or reopen" }, { status: 400 });
+    return NextResponse.json(
+      { error: "step must be quote, build, submit or reopen" },
+      { status: 400 },
+    );
   }
   const body = parsed.data;
 
   try {
+    if (body.step === "quote") {
+      return NextResponse.json(
+        await previewStake({ pactId: id, inputMint: body.inputMint }),
+      );
+    }
+
     if (body.step === "build") {
       return NextResponse.json(
         await buildStakeTransaction({

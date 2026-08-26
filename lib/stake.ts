@@ -270,6 +270,38 @@ async function buildUsdcStake(params: {
 }
 
 /**
+ * What the stake costs, without committing to anything.
+ *
+ * A quote-only call: no `userPublicKey`, so no transaction and no blockhash,
+ * so it can sit on screen for as long as the member wants to look at it. The
+ * order that actually gets signed is built on the tap -- see below.
+ */
+export async function previewStake(params: {
+  pactId: string;
+  inputMint: string;
+}): Promise<{ kind: "swap" | "transfer"; inAmount: string; venues: string[] }> {
+  const pact = await prisma.pact.findUniqueOrThrow({ where: { id: params.pactId } });
+
+  if (params.inputMint === USDC_MINT) {
+    return { kind: "transfer", inAmount: pact.stakeUsdc.toString(), venues: [] };
+  }
+
+  const probe = await getQuote({
+    inputMint: USDC_MINT,
+    outputMint: params.inputMint,
+    amount: pact.stakeUsdc,
+    slippageBps: SLIPPAGE_BPS,
+  });
+
+  const headroom = headroomFor(Number(probe.priceImpactPct), SLIPPAGE_BPS);
+  return {
+    kind: "swap",
+    inAmount: sizeInputLeg(BigInt(probe.outAmount), headroom).toString(),
+    venues: probe.routePlan?.map((leg) => leg.venue) ?? [],
+  };
+}
+
+/**
  * Built on the tap, never ahead of it.
  *
  * The order's blockhash is good for about 149 blocks -- a minute. A flow that

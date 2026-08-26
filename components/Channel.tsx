@@ -10,6 +10,7 @@ import { DayMarkers } from "@/components/DayMarkers";
 import { ExemptionVote } from "@/components/ExemptionVote";
 import { Feed } from "@/components/Feed";
 import { InviteQr } from "@/components/InviteQr";
+import { StakeSheet } from "@/components/StakeSheet";
 import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
 import {
   cadenceMetLine,
@@ -75,12 +76,15 @@ export function Channel({
   items: initialItems,
   viewerWallet,
   showInvite = false,
+  needsStake = false,
 }: {
   view: ChannelView;
   items: FeedItemDto[];
   viewerWallet: string;
   /** Opens the code straight away -- the beat after a crew is created. */
   showInvite?: boolean;
+  /** The viewer has joined but not paid. Nothing else is theirs to do yet. */
+  needsStake?: boolean;
 }) {
   const [view, setView] = useState(initialView);
   const [items, setItems] = useState(initialItems);
@@ -431,12 +435,19 @@ export function Channel({
                 {elapsed === 1 ? "minute" : "minutes"} so far
               </p>
             )}
-            <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
-              <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
-              <div className="min-w-0 flex-1">
-                <CommandInput onSubmit={run} />
+            {/* Before the stake there is nothing to check in to, so the
+                composer is replaced rather than disabled: a camera you may not
+                use is a worse answer than the one thing you can do. */}
+            {needsStake ? (
+              <StakeSheet pactId={view.pactId} stakeLabel={view.stake} />
+            ) : (
+              <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
+                <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
+                <div className="min-w-0 flex-1">
+                  <CommandInput onSubmit={run} />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 

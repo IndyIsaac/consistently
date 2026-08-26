@@ -38,6 +38,7 @@ export default async function PactPage({
       items={items}
       viewerWallet={session.user.walletAddress}
       showInvite={query.show === "invite"}
+      needsStake={pact.viewerStatus === "invited"}
     />
   );
 }
