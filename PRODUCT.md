@@ -98,10 +98,15 @@ reverse them:
 **Known constraints:**
 
 - Solana only. Tokens on other chains and balances on centralised exchanges are unreachable.
-- **No authentication in v1.** Requests name a wallet and are believed. This is a known, recorded
-  limitation that must be disclosed rather than glossed.
+- **Authentication is partial.** Routes that move money or read across pacts verify the
+  caller's Privy token. The check-in, feed, reaction and exemption routes still take the
+  wallet from the request body and believe it. Known, recorded, and to be disclosed rather
+  than glossed.
 - Stakes are custodied per-pact in a server-held encrypted vault for v1; a non-custodial escrow
   program is the production answer and is not built.
+- A member staking a non-USDC token overpays by the slippage headroom, because the router has
+  no exact-out. The surplus is not kept: settlement redistributes the vault's actual balance.
+- A period is closed by a member running `/settle`. There is no scheduler.
 - Members bring their own crypto. There is no fiat on-ramp, and building one is out of scope.
 
 ## Brand Commitments
@@ -135,5 +140,12 @@ Copy names people and numbers plainly. It does not congratulate, and it does not
    money, the product has failed regardless of what the screen says.
 4. **State the record, don't editorialise.** Numbers and names, plainly. The truth is sharp
    enough without help.
-5. **Bring what you have.** No required token, no required balance for fees, no setup errand
-   before the thing works.
+5. **Bring what you have.** No required token and no required balance for fees — a member
+   stakes in whatever they hold and never needs SOL.
+
+   **Amended 2026-08-26:** there is now one setup errand, and it is deliberate. Onboarding
+   holds the app shut until the member's wallet holds *something*. The gate was added
+   because the alternative is worse: an unfunded member walks in, reaches the stake button,
+   and finds out in front of their crew that it cannot work. Everything else about this
+   principle stands — the gate asks for money, not for setup, and it does not care which
+   token.
