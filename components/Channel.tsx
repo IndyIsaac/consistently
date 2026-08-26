@@ -30,30 +30,28 @@ import {
   withReactionToggled,
   type ChannelView,
 } from "@/lib/channel-view";
-// MOCK: every call below is one fetch away from real. See lib/mock-session.ts.
+// The transport. Each of these is the route it names when a database and a
+// Privy app are configured, and the in-memory demo when they are not -- the
+// branch is in lib/channel-client.ts and nothing here knows which it got.
 //
-//   getPact              -> GET  /api/pacts/[id]/view
-//   getChannel           -> GET  /api/pacts/[id]/feed?viewer=<wallet>
-//   mockOpenSession      -> POST /api/pacts/[id]/sessions     { action: "open" }
-//   mockCloseSession     -> POST /api/pacts/[id]/sessions     { action: "close" }
-//   mockToggleReaction   -> POST /api/feed/[itemId]/react
-//   mockRequestExemption -> POST /api/pacts/[id]/exemptions   { action: "request" }
-//   mockCastVote         -> POST /api/pacts/[id]/exemptions   { action: "vote" }
-//
-// The arguments and the resolved shapes already match, and a refused check-out
-// already arrives as a message the caller is meant to show rather than a stack
-// trace, so the swap is the import and the transport.
+//   getPact          -> GET  /api/pacts/[id]/view
+//   getChannel       -> GET  /api/pacts/[id]/feed?viewer=<wallet>
+//   openSession      -> POST /api/pacts/[id]/sessions     { action: "open" }
+//   closeSession     -> POST /api/pacts/[id]/sessions     { action: "close" }
+//   toggleReaction   -> POST /api/feed/[itemId]/react
+//   requestExemption -> POST /api/pacts/[id]/exemptions   { action: "request" }
+//   castVote         -> POST /api/pacts/[id]/exemptions   { action: "vote" }
 import {
+  castVote,
+  ChannelError,
+  closeSession,
   getChannel,
   getPact,
-  mockCastVote,
-  mockCloseSession,
-  mockNow,
-  mockOpenSession,
-  mockRequestExemption,
-  MockSessionGuardError,
-  mockToggleReaction,
-} from "@/lib/mock-session";
+  now as channelNow,
+  openSession,
+  requestExemption,
+  toggleReaction,
+} from "@/lib/channel-client";
 import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
@@ -111,7 +109,7 @@ export function Channel({
         body,
         photoUrl: null,
         authorName: null,
-        createdAt: mockNow().toISOString(),
+        createdAt: channelNow().toISOString(),
         reactions: [],
       },
       ...rows,
@@ -145,7 +143,7 @@ export function Channel({
     if (!pact) return viewRef.current;
 
     const before = viewRef.current;
-    const now = mockNow();
+    const now = channelNow();
     const after = channelView(pact, now);
 
     for (const member of after.crew) {
@@ -186,7 +184,7 @@ export function Channel({
   useEffect(() => {
     if (!session) return;
     const id = setInterval(
-      () => setElapsed(Math.max(0, Math.floor((mockNow().getTime() - session.startedAt) / 60_000))),
+      () => setElapsed(Math.max(0, Math.floor((channelNow().getTime() - session.startedAt) / 60_000))),
       1_000,
     );
     return () => clearInterval(id);
@@ -210,22 +208,26 @@ export function Channel({
 
     try {
       if (session) {
-        await mockCloseSession({ sessionId: session.sessionId, photoUrl });
+        await closeSession({
+          pactId: view.pactId,
+          sessionId: session.sessionId,
+          photoUrl,
+        });
         setSession(null);
         const after = await refresh();
         if (after.viewer) say(outlookLine(after.viewer.outlook));
       } else {
-        const { sessionId } = await mockOpenSession({
+        const { sessionId } = await openSession({
           pactId: view.pactId,
           userWallet: viewerWallet,
           photoUrl,
         });
         setElapsed(0);
-        setSession({ sessionId, startedAt: mockNow().getTime() });
+        setSession({ sessionId, startedAt: channelNow().getTime() });
         await refresh();
       }
     } catch (e) {
-      if (e instanceof MockSessionGuardError) {
+      if (e instanceof ChannelError) {
         // The refusal. The session stays open and the bot says how much longer.
         say(e.message);
       } else {
@@ -245,7 +247,7 @@ export function Channel({
     // Shown at once, then written. The same pure toggle runs on both sides, so
     // the optimistic row and the stored one cannot disagree.
     setItems((rows) => rows.map((row) => (row.id === itemId ? withReactionToggled(row, emoji) : row)));
-    await mockToggleReaction(view.pactId, itemId, emoji);
+    await toggleReaction(view.pactId, itemId, emoji, viewerWallet);
   }
 
   async function run(command: string) {
@@ -274,7 +276,7 @@ export function Channel({
           say(exemptNeedsReasonReply());
           break;
         }
-        await mockRequestExemption({
+        await requestExemption({
           pactId: view.pactId,
           userWallet: viewerWallet,
           periodKey: view.periodKey,
@@ -291,7 +293,7 @@ export function Channel({
   async function vote(approve: boolean) {
     const exemption = view.exemption;
     if (!exemption) return;
-    await mockCastVote({
+    await castVote({
       pactId: view.pactId,
       exemptionId: exemption.id,
       userWallet: viewerWallet,
