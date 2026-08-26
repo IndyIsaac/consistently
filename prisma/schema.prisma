@@ -13,6 +13,10 @@ model User {
   walletAddress String       @unique
   displayName   String
   createdAt     DateTime     @default(now())
+  /// When this wallet was first seen holding anything. Funding is a one-way
+  /// door, so once stamped the gate in app/(app)/layout.tsx never asks the RPC
+  /// about this user again -- one balance call per account, for its lifetime.
+  walletFundedAt DateTime?
   memberships   Membership[]
   reactions     Reaction[]
   votes         Vote[]

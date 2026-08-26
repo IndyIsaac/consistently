@@ -1,9 +1,17 @@
 import { AppHeader } from "@/components/AppHeader";
 import { Arrival } from "@/components/Arrival";
 import { BottomNav } from "@/components/BottomNav";
-import { getSession } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { gate, getSession } from "@/lib/session";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  // The hard block. The proxy has already turned away anyone with no token at
+  // all; what is left for this file is the two it cannot see -- a token that
+  // does not verify, and a wallet that has never held anything.
+  const entry = await gate();
+  if (entry === "signed-out") redirect("/");
+  if (entry === "needs-onboarding") redirect("/welcome");
+
   const { user } = await getSession();
 
   return (

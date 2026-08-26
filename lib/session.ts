@@ -1,5 +1,5 @@
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
-import { currentUser, DB_CONFIGURED, PRIVY_CONFIGURED } from "@/lib/auth";
+import { currentUser, DB_CONFIGURED, privyIdFromCookie, PRIVY_CONFIGURED } from "@/lib/auth";
 import type { AppSession, PactView } from "@/lib/view";
 
 /* ---------------------------------------------------------------------------
@@ -51,4 +51,32 @@ export async function getChannel(
 
   const { getFeed } = await import("@/app/api/pacts/[id]/feed/route");
   return getFeed(pactId, viewerWallet);
+}
+
+/**
+ * Whether the viewer may enter the interior.
+ *
+ * - `signed-out` -- no valid token. The proxy usually catches this first; this
+ *   is the case it cannot, because a forged or expired cookie is present.
+ * - `needs-onboarding` -- signed in, but either no row has been written for
+ *   them yet or their wallet has never been seen holding anything.
+ * - `ok` -- through. Also the answer on a deployment with no database, where
+ *   the whole app is the demo and there is nothing to gate.
+ *
+ * The funding check is a column read, not an RPC call: `walletFundedAt` is
+ * stamped once by GET /api/wallet/balance and never looked at again. So the
+ * gate costs one indexed query per navigation, which is the same query the
+ * page was about to make anyway.
+ */
+export type Gate = "ok" | "signed-out" | "needs-onboarding";
+
+export async function gate(): Promise<Gate> {
+  if (!LIVE) return "ok";
+
+  const viewer = await currentUser();
+  if (viewer) return viewer.walletFundedAt ? "ok" : "needs-onboarding";
+
+  // No row. Either nobody is signed in, or they are and this is their first
+  // visit -- and those need different destinations.
+  return (await privyIdFromCookie()) ? "needs-onboarding" : "signed-out";
 }
