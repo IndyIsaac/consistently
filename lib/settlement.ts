@@ -1,5 +1,28 @@
+import {
+  Keypair,
+  PublicKey,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
+import {
+  createAssociatedTokenAccountIdempotentInstruction,
+  createTransferCheckedInstruction,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import { z } from "zod";
+import { prisma } from "@/lib/db";
+import { buildOrder, USDC_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
+import { periodDayKeys } from "@/lib/pact-view";
+import { hasFailed, RuleConfigSchema } from "@/lib/rules";
+import {
+  deserializeTx,
+  getConnection,
+  loadSponsor,
+  signWith,
+  submitAndConfirm,
+} from "@/lib/solana";
+import { loadVault } from "@/lib/vault";
 
 /* ---------------------------------------------------------------------------
  * What a settled period leaves behind.
@@ -110,4 +133,238 @@ export function readSettlement(payouts: unknown, usdRate: number) {
       return Boolean(record?.failed.some((f) => f.membershipId === membershipId));
     },
   };
+}
+
+/* ---------------------------------------------------------------------------
+ * The other half: deciding who kept the rule, and moving the money.
+ * ------------------------------------------------------------------------- */
+
+/** What the vault actually holds, which is not always `n × stakeUsdc`. */
+async function vaultUsdcBalance(vaultAddress: string): Promise<bigint> {
+  const ata = getAssociatedTokenAddressSync(
+    new PublicKey(USDC_MINT),
+    new PublicKey(vaultAddress),
+  );
+  try {
+    const balance = await getConnection().getTokenAccountBalance(ata);
+    return BigInt(balance.value.amount);
+  } catch {
+    return 0n;
+  }
+}
+
+export class SettlementError extends Error {}
+
+/**
+ * Settles one period.
+ *
+ * Four things here are not obvious and all four were wrong in the first draft:
+ *
+ * 1. Sessions are windowed to the period before `hasFailed` sees them. Its own
+ *    doc states that precondition, and an unwindowed list means every member's
+ *    lifetime count exceeds the cadence -- after week two nobody ever fails
+ *    again and the product silently stops working.
+ *
+ * 2. A winner gets their own stake back *plus* a share. Paying only the share
+ *    would mean every member loses their principal every period, which is not
+ *    what "whoever breaks it forfeits their stake to whoever kept it" says.
+ *
+ * 3. The `Settlement` row is written before any money moves, and
+ *    `@@unique([pactId, periodKey])` makes it the mutex. A throw part-way
+ *    through used to leave some winners paid and no record, so a re-run paid
+ *    them twice. Now a re-run resumes: anything already carrying a signature
+ *    is skipped.
+ *
+ * 4. The pot is the vault's actual balance minus the winners' principal, not
+ *    `losers × stake`. A member staking a non-USDC token overpays by the
+ *    slippage headroom, and that surplus belongs to the crew rather than
+ *    accreting in a wallet nobody can reach.
+ */
+export async function settlePact(
+  pactId: string,
+  periodKey: string,
+  now: Date = new Date(),
+): Promise<{ payouts: SettlementRecord["payouts"]; potUsdc: string }> {
+  const pact = await prisma.pact.findUniqueOrThrow({
+    where: { id: pactId },
+    include: {
+      settlements: true,
+      memberships: {
+        include: { user: true, sessions: true, exemptions: true },
+      },
+    },
+  });
+
+  const rule = RuleConfigSchema.parse(pact.ruleConfig);
+  const inPeriod = new Set(periodDayKeys(rule, pact.timezone, now));
+
+  const failed: typeof pact.memberships = [];
+  const winners: typeof pact.memberships = [];
+
+  for (const m of pact.memberships) {
+    if (m.status === "left" || m.status === "invited") continue;
+
+    const excused = m.exemptions.some((e) => e.periodKey === periodKey && e.status === "granted");
+    // See note 1. `hasFailed` counts every day key it is handed.
+    const thisPeriod = m.sessions.filter((s) => inPeriod.has(s.dayKey));
+    const broke = hasFailed(thisPeriod, rule, pact.timezone);
+
+    if (broke && !excused) failed.push(m);
+    else winners.push(m);
+  }
+
+  const principal = pact.stakeUsdc;
+  const balance = await vaultUsdcBalance(pact.vaultAddress);
+  const winnersPrincipal = principal * BigInt(winners.length);
+  // See note 4.
+  const pot = balance > winnersPrincipal ? balance - winnersPrincipal : 0n;
+
+  const shares = splitPot({
+    failedStakes: pot > 0n ? [pot] : [],
+    winnerIds: winners.map((w) => w.id),
+  });
+  const shareFor = new Map(shares.map((s) => [s.winnerId, s.amount]));
+
+  const planned: SettlementRecord = {
+    periodKey,
+    stakeUsdc: principal.toString(),
+    potUsdc: pot.toString(),
+    failed: failed.map((m) => ({ membershipId: m.id, stakeUsdc: principal.toString() })),
+    payouts: winners.map((w) => ({
+      membershipId: w.id,
+      // See note 2.
+      principalUsdc: principal.toString(),
+      shareUsdc: (shareFor.get(w.id) ?? 0n).toString(),
+      payoutMint: w.payoutMint,
+      signature: null,
+    })),
+  };
+
+  // See note 3. The unique index refuses a second attempt at the same period,
+  // so a resumed run reads the existing plan rather than inventing a new one.
+  const existing = pact.settlements.find((s) => s.periodKey === periodKey);
+  const record = existing
+    ? SettlementRecordSchema.parse(existing.payouts)
+    : ((
+        await prisma.settlement.create({
+          data: { pactId, periodKey, totalPotUsdc: pot, payouts: planned },
+        })
+      ).payouts as unknown as SettlementRecord);
+
+  const vault = loadVault(pact.vaultSecretEnc);
+  const sponsor = loadSponsor();
+  const byId = new Map(pact.memberships.map((m) => [m.id, m]));
+
+  for (const payout of record.payouts) {
+    if (payout.signature) continue; // Already landed on an earlier attempt.
+
+    const member = byId.get(payout.membershipId);
+    if (!member) continue;
+
+    const amount = BigInt(payout.principalUsdc) + BigInt(payout.shareUsdc);
+    if (amount === 0n) continue;
+
+    let signature: string | null = null;
+
+    if (payout.payoutMint === USDC_MINT) {
+      // Nothing to route: DFlow cannot swap a mint to itself.
+      signature = await transferUsdc({
+        vault,
+        sponsor,
+        to: member.user.walletAddress,
+        amount,
+      });
+    } else {
+      const order = await buildOrder({
+        inputMint: USDC_MINT,
+        outputMint: payout.payoutMint,
+        amount,
+        userPublicKey: vault.publicKey.toBase58(),
+        destinationWallet: member.user.walletAddress,
+        sponsor: sponsor.publicKey.toBase58(),
+        sponsorExec: false,
+        slippageBps: 100,
+        platformFeeBps: Number(process.env.PLATFORM_FEE_BPS ?? 0) || undefined,
+        feeAccount: process.env.PLATFORM_FEE_ACCOUNT || undefined,
+      });
+
+      const tx = deserializeTx(order.transaction!);
+      // Both keys are here, so there is no client round trip and no race with
+      // the order's sixty-second blockhash.
+      signWith(tx, [vault, sponsor]);
+      signature = await submitAndConfirm(tx, order.lastValidBlockHeight!);
+    }
+
+    payout.signature = signature;
+    await prisma.settlement.update({
+      where: { pactId_periodKey: { pactId, periodKey } },
+      data: { payouts: record },
+    });
+    await prisma.membership.update({
+      where: { id: member.id },
+      data: { status: "passed", payoutTxSig: signature },
+    });
+  }
+
+  for (const m of failed) {
+    await prisma.membership.update({ where: { id: m.id }, data: { status: "failed" } });
+  }
+
+  // Only the last period ends the pact. A twelve-week rule settled after one
+  // week used to mark the whole thing done.
+  const periodsRun = existing ? pact.settlements.length : pact.settlements.length + 1;
+  if (periodsRun >= rule.durationPeriods) {
+    await prisma.pact.update({ where: { id: pactId }, data: { status: "settled" } });
+  }
+
+  const names = (list: typeof pact.memberships) =>
+    list.map((m) => m.user.displayName).join(", ") || "nobody";
+
+  await prisma.feedItem.create({
+    data: {
+      pactId,
+      type: "settlement",
+      body:
+        failed.length === 0
+          ? "Everyone made it. Nobody paid a thing."
+          : `${names(failed)} missed. Their stakes went to ${names(winners)}. Settled automatically.`,
+    },
+  });
+
+  return { payouts: record.payouts, potUsdc: pot.toString() };
+}
+
+/** A winner taking USDC needs a transfer, not a route. */
+async function transferUsdc(params: {
+  vault: Keypair;
+  sponsor: Keypair;
+  to: string;
+  amount: bigint;
+}): Promise<string> {
+  const mint = new PublicKey(USDC_MINT);
+  const to = new PublicKey(params.to);
+  const fromAta = getAssociatedTokenAddressSync(mint, params.vault.publicKey);
+  const toAta = getAssociatedTokenAddressSync(mint, to);
+
+  const { blockhash, lastValidBlockHeight } = await getConnection().getLatestBlockhash("confirmed");
+
+  const message = new TransactionMessage({
+    payerKey: params.sponsor.publicKey,
+    recentBlockhash: blockhash,
+    instructions: [
+      createAssociatedTokenAccountIdempotentInstruction(params.sponsor.publicKey, toAta, to, mint),
+      createTransferCheckedInstruction(
+        fromAta,
+        mint,
+        toAta,
+        params.vault.publicKey,
+        params.amount,
+        6,
+      ),
+    ],
+  }).compileToV0Message();
+
+  const tx = new VersionedTransaction(message);
+  signWith(tx, [params.vault, params.sponsor]);
+  return submitAndConfirm(tx, lastValidBlockHeight);
 }
