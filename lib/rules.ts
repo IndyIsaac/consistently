@@ -135,3 +135,54 @@ export function hasFailed(
   const missed = Math.max(0, rule.cadence - done);
   return missed > rule.failsWhenMissedExceeds;
 }
+
+/**
+ * Where a member stands part-way through a period: what is still owed, what is
+ * still available, and whether those two numbers can still meet.
+ *
+ * `hasFailed` above answers the settlement question — did they break the rule —
+ * and it can only answer it once the period is over. This answers the question
+ * during the period, which is the one a member actually asks: is this still
+ * reachable. The moment it is not, the crew is told, rather than finding out
+ * days later when the money moves.
+ */
+export type CadenceOutlook = {
+  /** Days still to be done. Zero once nothing more is owed. */
+  daysNeeded: number;
+  /** Days still available in the period, counting today while today is still open. */
+  daysAvailable: number;
+  /** Nothing more is owed: the cadence is already covered. */
+  met: boolean;
+  /** The cadence can no longer be reached, however the rest of the period goes. */
+  outOfReach: boolean;
+};
+
+/**
+ * Pure arithmetic over three numbers. It does not read a clock, a timezone or a
+ * session list: the caller says how many days are banked and how many are still
+ * available, both of which it already has to compute to draw anything.
+ *
+ * The days actually owed are `cadence` less the misses the rule forgives, so a
+ * rule that tolerates one missed day is out of reach one day later than one that
+ * tolerates none. Both inputs are clamped at zero — a caller that hands over a
+ * negative day count gets the honest answer for zero rather than a nonsense one.
+ *
+ * The boundary is deliberate: needing exactly as many days as remain is still
+ * possible (a perfect run), and only needing one more than remain is not.
+ */
+export function cadenceOutlook(
+  daysDone: number,
+  daysAvailable: number,
+  rule: RuleConfig,
+): CadenceOutlook {
+  const owed = Math.max(0, rule.cadence - rule.failsWhenMissedExceeds);
+  const daysNeeded = Math.max(0, owed - Math.max(0, daysDone));
+  const available = Math.max(0, daysAvailable);
+
+  return {
+    daysNeeded,
+    daysAvailable: available,
+    met: daysNeeded === 0,
+    outOfReach: daysNeeded > available,
+  };
+}

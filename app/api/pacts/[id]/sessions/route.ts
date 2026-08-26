@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { dayKeyFor } from "@/lib/rules";
+import { checkedInLine, checkedOutLine, earlyCheckoutRefusal } from "@/lib/bot";
+import { dayKeyFor, RuleConfigSchema } from "@/lib/rules";
 
 /**
  * Thrown for the guard conditions a caller is meant to see and act on (e.g. "a
@@ -45,7 +46,7 @@ export async function openSession(params: {
       pactId: pact.id,
       membershipId: membership.id,
       type: "checkin",
-      body: `${user.displayName} checked in`,
+      body: checkedInLine(user.displayName),
       photoUrl: params.photoUrl,
     },
   });
@@ -59,12 +60,36 @@ export async function closeSession(params: {
 }): Promise<{ durationMins: number }> {
   const session = await prisma.session.findUniqueOrThrow({
     where: { id: params.sessionId },
-    include: { membership: { include: { user: true } } },
+    include: { membership: { include: { user: true, pact: true } } },
   });
   if (session.endedAt) throw new SessionGuardError("Session is already closed.");
 
   const endedAt = new Date();
   const durationMins = Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 60_000);
+
+  // A short session is refused here rather than recorded and judged at
+  // settlement. `isValidSession` would have discarded it days later, by which
+  // time the member has already lost the stake and cannot do anything about
+  // it; refusing at the moment of the attempt is the whole point of the bot.
+  //
+  // The condition mirrors `isValidSession` exactly -- a `checkin`-only rule
+  // ignores `minDurationMins`, so this must too, or the API would refuse
+  // check-outs the rule engine would have accepted.
+  //
+  // A pact whose stored ruleConfig no longer parses is not a reason to trap a
+  // member in an open session: with no rule to enforce, the check-out is
+  // recorded as it was before.
+  const parsedRule = RuleConfigSchema.safeParse(session.membership.pact.ruleConfig);
+  if (parsedRule.success) {
+    const rule = parsedRule.data;
+    if (
+      rule.sessionType === "checkin_checkout" &&
+      rule.minDurationMins !== null &&
+      durationMins < rule.minDurationMins
+    ) {
+      throw new SessionGuardError(earlyCheckoutRefusal(durationMins, rule.minDurationMins));
+    }
+  }
 
   await prisma.session.update({
     where: { id: session.id },
@@ -76,7 +101,7 @@ export async function closeSession(params: {
       pactId: session.membership.pactId,
       membershipId: session.membershipId,
       type: "checkout",
-      body: `${session.membership.user.displayName} checked out after ${durationMins} minutes`,
+      body: checkedOutLine(session.membership.user.displayName, durationMins),
       photoUrl: params.photoUrl,
     },
   });

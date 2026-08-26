@@ -60,6 +60,11 @@
 
   --scrollbar-thumb-hover: #d4d4d4;
 
+  /* The app header's height, named once so anything that has to sit directly
+     under it (the channel's compact bar) does not guess. components/AppHeader.tsx
+     is pinned to it rather than the other way round. */
+  --app-header-h: 4rem;
+
   /* The theme toggle is a small physical object rather than a surface: a dark
      track and a light knob, the same material in either theme. It is the one
      thing in the product that does not flip, because flipping it would mean the

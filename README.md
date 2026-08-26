@@ -30,13 +30,22 @@ a real query belongs:
 |---|---|
 | `app/(app)/dashboard/page.tsx` | the signed-in user's pacts |
 | `app/(app)/groups/page.tsx` | the signed-in user's memberships |
-| `app/(app)/pacts/[id]/page.tsx` | `GET /api/pacts/[id]/view` |
+| `app/(app)/pacts/[id]/page.tsx` | `GET /api/pacts/[id]/view` and `GET /api/pacts/[id]/feed` |
+| `components/Channel.tsx` | the sessions, feed, reaction and exemption routes |
 
 Nothing in it invents a shape: crew rows extend `LeaderRow` from `lib/stats.ts` and are
 produced by the real `leaderboard()` over real `SessionRecord`s; the pact and user carry the
 Prisma column names from `prisma/schema.prisma`.
 
-The mock clock is frozen (`MOCK_NOW`) so the screens compose the same way every time.
+The mock clock is frozen (`MOCK_NOW`) so the screens compose the same way every time: a
+Friday morning, the first day of the week on which a five-a-week member can already be
+finished (Nat) and another can already be out of reach (Dave).
+
+**Inside a group the mock runs one real second to the minute.** A check-in is recorded at the
+real clock, so with real minutes the second half of the demo would mean standing there for
+thirty of them. Compressed, an early check-out is refused by the same arithmetic against the
+same rule and thirty seconds later the same check-out is accepted. The route it stands in for
+uses wall time; only `lib/mock-session.ts` knows about the compression.
 
 ## Sign-in
 
@@ -74,6 +83,22 @@ chrome. There is a light/dark switch beside the device switch.
 
 **It is a development surface, not product.** Nothing links to it, it is not indexed, and
 deleting `app/preview/` removes all of it.
+
+## The group channel
+
+A bot channel, not a chat. The bot streams every action; a member can do exactly two things,
+take a photo and run a slash command, and `/help` lists the six commands there are. There is
+no message composer and there is not going to be one.
+
+Checking out before the rule's minimum is **refused at the moment it is attempted** rather
+than recorded and judged at settlement — `closeSession` in
+`app/api/pacts/[id]/sessions/route.ts` throws a `SessionGuardError` the caller sees as a 400.
+The moment a member's cadence becomes arithmetically unreachable, the bot says so in the
+channel; the arithmetic is `cadenceOutlook` in `lib/rules.ts` and the sentence is
+`outOfReachVerdict` in `lib/bot.ts`, which is where every word the bot says lives.
+
+**The invite QR encodes `/?invite=<token>`, which is the sign-in.** The token rides in the URL
+and nothing consumes it yet: joining from a scan is the next task, not this one.
 
 ## Known limitations
 

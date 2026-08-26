@@ -1,7 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { Camera } from "lucide-react";
+import { cn } from "@/lib/utils";
 
+/**
+ * The camera. Half of what a member can do in a group, and the only way a
+ * session opens or closes.
+ *
+ * `capture="environment"` opens the rear camera directly on a phone, which is
+ * the whole point — proof is a photo taken at the gym, not a file picked from a
+ * library. On a desktop the same input falls back to a file dialog, which is
+ * how the demo runs on a laptop.
+ *
+ * It no longer keeps a thumbnail of its own: the photo posts to the channel the
+ * moment it is taken, and a second copy of it floating in the composer was one
+ * preview too many. The caller owns the object URL and the channel row it lands
+ * in.
+ */
 export function CheckInCamera({
   label,
   onCapture,
@@ -10,31 +26,24 @@ export function CheckInCamera({
   onCapture: (file: File) => Promise<void> | void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // Revoke the previous object URL whenever it's replaced or the component
-  // unmounts, so repeated captures in one sitting don't leak blob URLs.
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
 
   async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setPreview(URL.createObjectURL(file));
     setBusy(true);
     try {
       await onCapture(file);
     } finally {
       setBusy(false);
+      // Let the same photo be chosen twice in a row -- without this, picking
+      // the identical file fires no change event the second time.
+      e.target.value = "";
     }
   }
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <>
       <input
         ref={inputRef}
         type="file"
@@ -43,17 +52,18 @@ export function CheckInCamera({
         className="hidden"
         onChange={handleChange}
       />
-      {preview && (
-        <img src={preview} alt="" className="h-40 w-40 rounded-xl object-cover" />
-      )}
       <button
         type="button"
         disabled={busy}
         onClick={() => inputRef.current?.click()}
-        className="rounded-full bg-black px-6 py-3 text-white disabled:opacity-50"
+        className={cn(
+          "inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-ink pr-5 pl-4 text-[14px] font-semibold tracking-[-0.01em] whitespace-nowrap text-ground transition-opacity",
+          busy ? "opacity-55" : "hover:opacity-85",
+        )}
       >
-        {busy ? "Uploading…" : label}
+        <Camera className="size-[18px]" aria-hidden="true" strokeWidth={2} />
+        {busy ? "Posting" : label}
       </button>
-    </div>
+    </>
   );
 }

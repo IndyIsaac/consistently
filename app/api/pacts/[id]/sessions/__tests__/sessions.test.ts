@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { openSession, closeSession } from "@/app/api/pacts/[id]/sessions/route";
+import { NextRequest } from "next/server";
+import { openSession, closeSession, POST } from "@/app/api/pacts/[id]/sessions/route";
 import { prisma } from "@/lib/db";
 import { createVault } from "@/lib/vault";
 
@@ -97,8 +98,122 @@ describe("sessions", () => {
     const { sessionId } = await openSession({
       pactId: pact.id, userWallet: user.walletAddress, photoUrl: null,
     });
+    // The fixture's rule has a 30-minute minimum and closeSession now refuses
+    // anything short of it, so the first close has to be a real one: without
+    // back-dating, this asserted "already closed" against a session that was
+    // never closed in the first place.
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { startedAt: new Date(Date.now() - 45 * 60_000) },
+    });
     await closeSession({ sessionId, photoUrl: null });
     await expect(closeSession({ sessionId, photoUrl: null })).rejects.toThrow(/already closed/i);
+    await prisma.pact.delete({ where: { id: pact.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+
+  it("refuses a check-out short of the rule's minimum, and says how much longer", async () => {
+    const { user, pact } = await fixture();
+    const { sessionId } = await openSession({
+      pactId: pact.id, userWallet: user.walletAddress, photoUrl: null,
+    });
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { startedAt: new Date(Date.now() - 14 * 60_000) },
+    });
+    await expect(closeSession({ sessionId, photoUrl: null })).rejects.toThrow(
+      "That’s 14 minutes. The pact says 30. Sixteen to go.",
+    );
+    await prisma.pact.delete({ where: { id: pact.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+
+  it("leaves the session open and writes no feed row when it refuses", async () => {
+    // A refusal that half-recorded the check-out would be worse than none: the
+    // member could not try again, and the channel would carry a check-out that
+    // never happened.
+    const { user, pact } = await fixture();
+    const { sessionId } = await openSession({
+      pactId: pact.id, userWallet: user.walletAddress, photoUrl: null,
+    });
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { startedAt: new Date(Date.now() - 5 * 60_000) },
+    });
+    await expect(closeSession({ sessionId, photoUrl: "https://x/end.jpg" })).rejects.toThrow();
+
+    const after = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
+    expect(after.endedAt).toBeNull();
+    expect(after.endPhotoUrl).toBeNull();
+    expect(await prisma.feedItem.count({ where: { pactId: pact.id, type: "checkout" } })).toBe(0);
+
+    // ...and the same session closes cleanly once the minimum is behind it.
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { startedAt: new Date(Date.now() - 31 * 60_000) },
+    });
+    const { durationMins } = await closeSession({ sessionId, photoUrl: null });
+    expect(durationMins).toBeGreaterThanOrEqual(30);
+    expect(await prisma.feedItem.count({ where: { pactId: pact.id, type: "checkout" } })).toBe(1);
+
+    await prisma.pact.delete({ where: { id: pact.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+
+  it("accepts a check-out exactly on the minimum", async () => {
+    // The boundary: `isValidSession` counts a session of exactly minDurationMins,
+    // so the API must not refuse one. Off by one here costs someone ฿1,000.
+    const { user, pact } = await fixture();
+    const { sessionId } = await openSession({
+      pactId: pact.id, userWallet: user.walletAddress, photoUrl: null,
+    });
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { startedAt: new Date(Date.now() - 30 * 60_000) },
+    });
+    const { durationMins } = await closeSession({ sessionId, photoUrl: null });
+    expect(durationMins).toBe(30);
+    await prisma.pact.delete({ where: { id: pact.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+
+  it("records a short check-out when the rule sets no minimum", async () => {
+    // A pact with minDurationMins: null has nothing to enforce, and the refusal
+    // must not invent a rule the crew never agreed.
+    const { user, pact } = await fixture();
+    await prisma.pact.update({
+      where: { id: pact.id },
+      data: {
+        ruleConfig: {
+          cadence: 5, period: "week", sessionType: "checkin_checkout", minDurationMins: null,
+          windowStart: "00:00", windowEnd: "23:59", proof: "photo",
+          failsWhenMissedExceeds: 0, split: "equal", exemption: "majority", durationPeriods: 4,
+        },
+      },
+    });
+    const { sessionId } = await openSession({
+      pactId: pact.id, userWallet: user.walletAddress, photoUrl: null,
+    });
+    const { durationMins } = await closeSession({ sessionId, photoUrl: null });
+    expect(durationMins).toBe(0);
+    await prisma.pact.delete({ where: { id: pact.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+
+  it("reaches the caller as a 400, not a 500", async () => {
+    // SessionGuardError is what separates "you have another sixteen minutes"
+    // from a leaked Prisma stack trace. The refusal has to travel on the first.
+    const { user, pact } = await fixture();
+    const { sessionId } = await openSession({
+      pactId: pact.id, userWallet: user.walletAddress, photoUrl: null,
+    });
+    const req = new NextRequest(`http://localhost/api/pacts/${pact.id}/sessions`, {
+      method: "POST",
+      body: JSON.stringify({ action: "close", sessionId }),
+    });
+    const res = await POST(req, { params: Promise.resolve({ id: pact.id }) });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/The pact says 30/);
     await prisma.pact.delete({ where: { id: pact.id } });
     await prisma.user.delete({ where: { id: user.id } });
   });

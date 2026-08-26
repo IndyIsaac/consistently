@@ -126,3 +126,16 @@ export function standingLine(daysDone: number, required: number, todayDone: bool
   if (todayDone) return `${spell(short)} to go.`;
   return `${spell(short)} to go. Today is not done.`;
 }
+
+const WEEKDAYS = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+
+/**
+ * The weekday a bare day key falls on. Day keys carry no timezone — they are
+ * already the crew's local calendar date — so this reads the key itself rather
+ * than converting anything. Same reasoning as `addDays` above.
+ */
+export function weekdayName(dayKey: string): string {
+  return WEEKDAYS[new Date(`${dayKey}T00:00:00.000Z`).getUTCDay()];
+}

@@ -9,7 +9,7 @@ export function AppHeader({
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-ground/85 backdrop-blur-md">
-      <div className="mx-auto flex w-full max-w-[54rem] items-center justify-between px-5 py-3.5 sm:px-8">
+      <div className="mx-auto flex h-[var(--app-header-h)] w-full max-w-[54rem] items-center justify-between px-5 sm:px-8">
         <Link
           href="/dashboard"
           className="rounded-sm text-[15px] font-extrabold tracking-[-0.045em] text-ink"

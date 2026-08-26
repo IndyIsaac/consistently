@@ -5,6 +5,7 @@ import {
   isValidSession,
   countValidDays,
   hasFailed,
+  cadenceOutlook,
   dayKeyFor,
   type RuleConfig,
 } from "@/lib/rules";
@@ -201,5 +202,84 @@ describe("hasFailed", () => {
       endedAt: new Date(`2026-08-2${4 + i}T02:45:00.000Z`),
     }));
     expect(hasFailed(sessions, gym, "Asia/Bangkok")).toBe(false);
+  });
+});
+
+describe("cadence outlook", () => {
+  // Thursday of a five-a-week week: Thu, Fri, Sat, Sun still available.
+  it("is neutral while the cadence is still reachable", () => {
+    const o = cadenceOutlook(3, 4, gym);
+    expect(o).toEqual({ daysNeeded: 2, daysAvailable: 4, met: false, outOfReach: false });
+  });
+
+  it("still counts a perfect run as possible when needed equals available", () => {
+    // The boundary from the possible side. Four days left and four to go is a
+    // week with no slack in it, but it is not yet a forfeit -- calling it one
+    // here would tell someone they had lost ฿1,000 they could still keep.
+    expect(cadenceOutlook(1, 4, gym).outOfReach).toBe(false);
+  });
+
+  it("flips to out of reach the moment one more day is needed than remains", () => {
+    // ...and the other side of the same boundary, one day later: the same
+    // member, one day gone, nothing done. This is the flip the bot announces.
+    const o = cadenceOutlook(1, 3, gym);
+    expect(o.daysNeeded).toBe(4);
+    expect(o.daysAvailable).toBe(3);
+    expect(o.outOfReach).toBe(true);
+  });
+
+  it("is out of reach with no days left and days still owed", () => {
+    expect(cadenceOutlook(4, 0, gym)).toEqual({
+      daysNeeded: 1,
+      daysAvailable: 0,
+      met: false,
+      outOfReach: true,
+    });
+  });
+
+  it("is met, and never out of reach, once the cadence is covered", () => {
+    const o = cadenceOutlook(5, 3, gym);
+    expect(o.met).toBe(true);
+    expect(o.daysNeeded).toBe(0);
+    expect(o.outOfReach).toBe(false);
+  });
+
+  it("stays met with no days left, rather than reading as a forfeit", () => {
+    // Sunday night, cadence covered. Zero available and zero needed must not
+    // trip the `needed > available` test.
+    const o = cadenceOutlook(5, 0, gym);
+    expect(o.met).toBe(true);
+    expect(o.outOfReach).toBe(false);
+  });
+
+  it("counts overshooting the cadence as met", () => {
+    expect(cadenceOutlook(7, 0, gym).met).toBe(true);
+  });
+
+  it("owes fewer days when the rule forgives a miss, so the flip comes later", () => {
+    // failsWhenMissedExceeds: 1 forgives one missed day, so only four of the
+    // five are actually owed. Reading `cadence` alone would call this out of
+    // reach a day early.
+    const forgiving: RuleConfig = { ...gym, failsWhenMissedExceeds: 1 };
+    expect(cadenceOutlook(1, 3, forgiving)).toEqual({
+      daysNeeded: 3,
+      daysAvailable: 3,
+      met: false,
+      outOfReach: false,
+    });
+    expect(cadenceOutlook(1, 2, forgiving).outOfReach).toBe(true);
+  });
+
+  it("is met from the start when the rule forgives every day of the cadence", () => {
+    expect(cadenceOutlook(0, 0, { ...gym, failsWhenMissedExceeds: 5 }).met).toBe(true);
+  });
+
+  it("clamps negative counts instead of answering nonsense", () => {
+    expect(cadenceOutlook(-3, -2, gym)).toEqual({
+      daysNeeded: 5,
+      daysAvailable: 0,
+      met: false,
+      outOfReach: true,
+    });
   });
 });
