@@ -1,17 +1,32 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
 import type { RuleConfig } from "@/lib/rules";
+
+/* ---------------------------------------------------------------------------
+ * The rule, as seven fields.
+ *
+ * Underneath the plain-English draft rather than instead of it: the draft gets
+ * it right most of the time and this is where a crew fixes the rest. Every
+ * parameter here is one the engine in lib/rules.ts actually evaluates, and
+ * there are no others -- the spec fixes the schema and new parameters do not
+ * get added.
+ *
+ * Colour is money only, per DESIGN.md, so the one validation message is set in
+ * ink with a mark beside it rather than in red.
+ * ------------------------------------------------------------------------- */
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex items-center justify-between gap-4 py-2">
-      <span className="text-sm text-neutral-600">{label}</span>
+    <label className="flex items-center justify-between gap-4 py-3">
+      <span className="text-[14px] text-grey-on-ground">{label}</span>
       {children}
     </label>
   );
 }
 
-const input = "rounded-lg border border-neutral-300 px-2 py-1 text-sm";
+const field =
+  "rounded-xl border border-hairline bg-ground px-3 py-2 text-[14px] text-ink outline-none transition-colors focus:border-ink";
 
 /**
  * Parses a number input's raw string, falling back to `fallback` unless the result is an
@@ -48,13 +63,13 @@ export function RuleEditor({
   const windowInvalid = value.windowStart >= value.windowEnd;
 
   return (
-    <div className="divide-y divide-neutral-100">
+    <div className="divide-y divide-hairline">
       <Row label="Times per week">
         <input
           type="number"
           min={1}
           max={7}
-          className={input}
+          className={`${field} w-20 text-right`}
           value={value.cadence}
           onChange={(e) => set("cadence", parseNumber(e.target.value, value.cadence, 1, 7))}
         />
@@ -62,7 +77,7 @@ export function RuleEditor({
 
       <Row label="Proof">
         <select
-          className={input}
+          className={field}
           value={value.sessionType}
           onChange={(e) => setSessionType(e.target.value as RuleConfig["sessionType"])}
         >
@@ -76,7 +91,7 @@ export function RuleEditor({
           <input
             type="number"
             min={1}
-            className={input}
+            className={`${field} w-20 text-right`}
             value={value.minDurationMins ?? 30}
             onChange={(e) =>
               set("minDurationMins", parseNumber(e.target.value, value.minDurationMins ?? 30, 1))
@@ -90,22 +105,26 @@ export function RuleEditor({
           <span className="flex items-center gap-2">
             <input
               type="time"
-              className={input}
+              className={field}
               value={value.windowStart}
               onChange={(e) => set("windowStart", e.target.value)}
             />
-            <span className="text-sm text-neutral-400">and</span>
+            <span className="text-[13px] text-grey-on-ground">and</span>
             <input
               type="time"
-              className={input}
+              className={field}
               value={value.windowEnd}
               onChange={(e) => set("windowEnd", e.target.value)}
             />
           </span>
         </Row>
         {windowInvalid && (
-          <p className="pb-2 text-right text-xs text-red-600">
-            Start time must be before end time.
+          <p
+            role="alert"
+            className="flex items-start justify-end gap-2 pb-3 text-[13px] text-ink"
+          >
+            <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+            The start has to come before the end.
           </p>
         )}
       </div>
@@ -114,7 +133,7 @@ export function RuleEditor({
         <input
           type="number"
           min={0}
-          className={input}
+          className={`${field} w-20 text-right`}
           value={value.failsWhenMissedExceeds}
           onChange={(e) =>
             set(
@@ -130,7 +149,7 @@ export function RuleEditor({
           type="number"
           min={1}
           max={52}
-          className={input}
+          className={`${field} w-20 text-right`}
           value={value.durationPeriods}
           onChange={(e) =>
             set("durationPeriods", parseNumber(e.target.value, value.durationPeriods, 1, 52))
@@ -141,6 +160,7 @@ export function RuleEditor({
       <Row label="Crew can grant exemptions">
         <input
           type="checkbox"
+          className="size-4 accent-ink"
           checked={value.exemption === "majority"}
           onChange={(e) => set("exemption", e.target.checked ? "majority" : "none")}
         />

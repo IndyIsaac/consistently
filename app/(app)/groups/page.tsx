@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
 import { DashedRule, Panel } from "@/components/Panel";
 import { formatMoney } from "@/lib/money";
@@ -83,22 +83,44 @@ export default async function GroupsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-10 sm:px-8 sm:pt-14">
-      <h1 className="text-[clamp(2rem,7vw,3rem)] leading-[1.03] font-extrabold tracking-[-0.035em] text-ink">
-        {pacts.length === 0 ? "No crews." : `${spell(pacts.length)} crews.`}
-      </h1>
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0">
+          <h1 className="text-[clamp(2rem,7vw,3rem)] leading-[1.03] font-extrabold tracking-[-0.035em] text-ink">
+            {pacts.length === 0 ? "No crews." : `${spell(pacts.length)} crews.`}
+          </h1>
 
-      <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-ground">
-        {pacts.length === 0
-          ? "Nothing agreed, nothing at stake. A pact starts with a rule and a number."
-          : `${formatMoney(onThisWeek, currency)} rides on this week.`}
-      </p>
+          <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-ground">
+            {pacts.length === 0
+              ? "Nothing agreed, nothing at stake. A pact starts with a rule and a number."
+              : `${formatMoney(onThisWeek, currency)} rides on this week.`}
+          </p>
+        </div>
+
+        {/* The same pill as the channel's Invite, on the opposite side of the
+            headline. A third bottom-nav tab would mean rewriting the limelight,
+            which is hardcoded to two. */}
+        <Link
+          href="/pacts/new"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-hairline bg-panel pr-4 pl-3.5 text-[14px] font-semibold text-ink transition-colors hover:border-ink/40"
+        >
+          <Plus className="size-4" aria-hidden="true" strokeWidth={2} />
+          New
+        </Link>
+      </div>
 
       {pacts.length === 0 ? (
         <Panel className="mt-10">
           <p className="text-[15px] text-ink">You are not in a crew yet.</p>
-          <p className="mt-2 text-[14px] text-grey-on-ground">
-            Someone sends you a link, you agree the rule, you stake. That is the whole of it.
+          <p className="mt-2 max-w-[46ch] text-[14px] leading-relaxed text-grey-on-ground">
+            Either someone sends you a code to scan, or you agree the rule and send
+            the code round yourself.
           </p>
+          <Link
+            href="/pacts/new"
+            className="mt-6 inline-flex items-center justify-center rounded-full bg-ink px-7 py-3 text-[12px] tracking-[0.24em] text-ground uppercase transition-opacity hover:opacity-85"
+          >
+            Start a crew
+          </Link>
         </Panel>
       ) : (
         <ul className="mt-10 flex flex-col gap-4">

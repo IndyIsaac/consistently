@@ -19,8 +19,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: pact ? `${pact.name} · Consistently` : "Consistently" };
 }
 
-export default async function PactPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function PactPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ show?: string }>;
+}) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
   const [pact, session] = await Promise.all([getPact(id), getSession()]);
   if (!pact) notFound();
 
@@ -31,6 +37,7 @@ export default async function PactPage({ params }: { params: Promise<{ id: strin
       view={channelView(pact, session.now)}
       items={items}
       viewerWallet={session.user.walletAddress}
+      showInvite={query.show === "invite"}
     />
   );
 }

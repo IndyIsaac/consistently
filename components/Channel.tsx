@@ -74,17 +74,20 @@ export function Channel({
   view: initialView,
   items: initialItems,
   viewerWallet,
+  showInvite = false,
 }: {
   view: ChannelView;
   items: FeedItemDto[];
   viewerWallet: string;
+  /** Opens the code straight away -- the beat after a crew is created. */
+  showInvite?: boolean;
 }) {
   const [view, setView] = useState(initialView);
   const [items, setItems] = useState(initialItems);
   const [replies, setReplies] = useState<FeedItemDto[]>([]);
   const [session, setSession] = useState<{ sessionId: string; startedAt: number } | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [qrOpen, setQrOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(showInvite);
   const [pinned, setPinned] = useState(false);
 
   const foot = useRef<HTMLDivElement>(null);
