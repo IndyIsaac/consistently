@@ -19,6 +19,9 @@ import {
   helpReply,
   inviteReply,
   outOfReachVerdict,
+  settledLine,
+  settleFailedLine,
+  settlingLine,
   outlookLine,
   stakeReply,
   statusReply,
@@ -267,6 +270,9 @@ export function Channel({
       case "stake":
         say(stakeReply(view.bot));
         break;
+      case "settle":
+        void settle();
+        break;
       case "invite":
         setQrOpen(true);
         say(inviteReply());
@@ -286,6 +292,32 @@ export function Channel({
         break;
       default:
         say(unknownCommandReply(name.toLowerCase()));
+    }
+    scrollToFoot();
+  }
+
+  /**
+   * Closes the period. Safe to run twice -- who failed comes out of the
+   * sessions, not out of who typed it, and the settlement row is the mutex.
+   */
+  async function settle() {
+    say(settlingLine());
+    try {
+      const res = await fetch(`/api/pacts/${view.pactId}/settle`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        say(settleFailedLine(typeof body.error === "string" ? body.error : "Try again."));
+        return;
+      }
+      say(settledLine({ failed: body.payouts?.length ?? 0, potUsdc: body.potUsdc ?? "0" }));
+      await refresh();
+    } catch {
+      say(settleFailedLine("Could not reach the settlement."));
     }
     scrollToFoot();
   }

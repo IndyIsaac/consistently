@@ -165,16 +165,18 @@ describe("the commands", () => {
     ],
   };
 
+  // The count is asserted rather than derived on purpose: PRODUCT.md fixes the
+  // command list, and adding one should have to be a deliberate edit here too.
   it("lists every command it answers, and counts them correctly", () => {
     const help = helpReply();
-    expect(help.startsWith("Six commands.")).toBe(true);
+    expect(help.startsWith("Seven commands.")).toBe(true);
     for (const command of COMMANDS) expect(help).toContain(`/${command.name}`);
-    expect(COMMANDS).toHaveLength(6);
+    expect(COMMANDS).toHaveLength(7);
   });
 
   it("corrects an unknown command dryly rather than erroring", () => {
     const reply = unknownCommandReply("gym");
-    expect(reply).toBe("There is no /gym. /help lists the six there are.");
+    expect(reply).toBe("There is no /gym. /help lists the seven there are.");
     expect(isDeadpan(reply)).toBe(true);
   });
 

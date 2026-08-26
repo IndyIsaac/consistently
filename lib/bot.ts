@@ -135,6 +135,7 @@ export const COMMANDS: { name: string; hint: string }[] = [
   { name: "stake", hint: "what is riding on it" },
   { name: "invite", hint: "the code to hand round" },
   { name: "exempt", hint: "ask to be let off" },
+  { name: "settle", hint: "close the period and move the money" },
   { name: "help", hint: "this" },
 ];
 
@@ -232,4 +233,26 @@ export function exemptNeedsReasonReply(): string {
 /** Said the moment a member's cadence is covered. "Nat is done. Five of five." */
 export function cadenceMetLine(name: string, cadence: number): string {
   return `${name} is done. ${cap(spellNumber(cadence))} of ${spellNumber(cadence)}.`;
+}
+
+/**
+ * What the bot says while a settlement is on chain.
+ *
+ * There is no scheduler in this build, so a period ends when the crew says it
+ * ends. `/settle` is safe to run twice: who failed is computed from the
+ * sessions rather than from whoever typed it, and the settlement row is a
+ * mutex, so a second run resumes an interrupted one rather than paying anyone
+ * again.
+ */
+export function settlingLine(): string {
+  return "Closing the period. Working out who owes what.";
+}
+
+export function settledLine(params: { failed: number; potUsdc: string }): string {
+  if (params.failed === 0) return "Everyone made it. Nobody paid a thing.";
+  return `${cap(spellNumber(params.failed))} missed. Their stakes are on their way to everyone who did not.`;
+}
+
+export function settleFailedLine(reason: string): string {
+  return `The settlement did not finish. ${reason}`;
 }
