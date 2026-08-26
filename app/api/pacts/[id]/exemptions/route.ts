@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { MemberStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import {
+  ELIGIBLE_STATUSES,
+  ELIGIBLE_STATUS_SET,
+  tallyExemption,
+} from "@/lib/exemptions";
 import { RuleConfigSchema } from "@/lib/rules";
 
 /**
@@ -15,22 +19,10 @@ import { RuleConfigSchema } from "@/lib/rules";
 class ExemptionGuardError extends Error {}
 
 /**
- * Membership statuses that count toward the crew that gets a say in an
- * exemption -- both as the denominator ("eligible"), as who is allowed to
- * request or cast a vote at all, and as which cast votes still count toward
- * the tally. `invited` (never staked) and `left` (walked away) members are
- * excluded from all three; keeping one canonical list for all of them
- * prevents the numerator and denominator from drifting apart.
- *
- * `as const satisfies MemberStatus[]` is what Prisma's `in` filters want
- * directly (see the count/findMany queries below). A membership-status
- * *equality* check against a single `MemberStatus` value can't reuse the
- * tuple's own `.includes` -- TS keeps its element type narrowed to the three
- * literals, so a value of the wider `MemberStatus` type won't type-check as
- * its argument -- hence the `Set` built from the same array just below.
+ * The eligible-status list and the tally now live in lib/exemptions.ts, so the
+ * pact screen's "one more yes" is computed by the same function that decides
+ * whether the vote actually carried. See the note at the top of that file.
  */
-const ELIGIBLE_STATUSES = ["staked", "passed", "failed"] as const satisfies MemberStatus[];
-const ELIGIBLE_STATUS_SET: ReadonlySet<MemberStatus> = new Set(ELIGIBLE_STATUSES);
 
 export async function requestExemption(params: {
   pactId: string;
@@ -124,30 +116,24 @@ export async function castVote(params: {
     create: { exemptionId: exemption.id, userId: user.id, approve: params.approve },
   });
 
-  // The denominator (`eligible`) and the numerator (which cast votes still
-  // count) must describe the same population, read at the same moment --
-  // otherwise a vote from a member who has since left keeps a phantom say
-  // in the outcome while no longer being counted in `needed`.
-  const eligibleMemberships = await prisma.membership.findMany({
-    where: {
-      pactId: exemption.membership.pactId,
-      status: { in: ELIGIBLE_STATUSES },
-      NOT: { id: exemption.membershipId },
-    },
-    select: { userId: true },
+  // The denominator and the numerator must describe the same population read
+  // at the same moment -- otherwise a vote from a member who has since left
+  // keeps a phantom say in the outcome while no longer counting toward
+  // `needed`. `tallyExemption` is where that invariant is enforced, and the
+  // pact screen calls the same function.
+  const [memberships, votes] = await Promise.all([
+    prisma.membership.findMany({
+      where: { pactId: exemption.membership.pactId },
+      select: { id: true, userId: true, status: true },
+    }),
+    prisma.vote.findMany({ where: { exemptionId: exemption.id } }),
+  ]);
+
+  const { approvals, needed, status } = tallyExemption({
+    requesterMembershipId: exemption.membershipId,
+    memberships,
+    votes,
   });
-  const eligible = eligibleMemberships.length;
-  const needed = Math.floor(eligible / 2) + 1;
-  const eligibleUserIds = new Set(eligibleMemberships.map((m) => m.userId));
-
-  const votes = await prisma.vote.findMany({ where: { exemptionId: exemption.id } });
-  const eligibleVotes = votes.filter((v) => eligibleUserIds.has(v.userId));
-  const approvals = eligibleVotes.filter((v) => v.approve).length;
-  const rejections = eligibleVotes.length - approvals;
-
-  let status: "pending" | "granted" | "denied" = "pending";
-  if (approvals >= needed) status = "granted";
-  else if (rejections >= needed) status = "denied";
 
   if (status !== "pending") {
     await prisma.exemption.update({ where: { id: exemption.id }, data: { status } });
