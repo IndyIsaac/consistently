@@ -1,9 +1,7 @@
 import { notFound } from "next/navigation";
 import { Channel } from "@/components/Channel";
 import { channelView } from "@/lib/channel-view";
-// MOCK: swap for GET /api/pacts/[id]/view and GET /api/pacts/[id]/feed.
-// See lib/mock-session.ts.
-import { getChannel, getPact, getSession, MOCK_NOW } from "@/lib/mock-session";
+import { getChannel, getPact, getSession } from "@/lib/session";
 
 /**
  * Inside a group: a bot channel, not a chat. The bot streams every action as it
@@ -23,16 +21,16 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function PactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [pact, { user }] = await Promise.all([getPact(id), getSession()]);
+  const [pact, session] = await Promise.all([getPact(id), getSession()]);
   if (!pact) notFound();
 
-  const items = await getChannel(pact.id, user.walletAddress);
+  const items = await getChannel(pact.id, session.user.walletAddress);
 
   return (
     <Channel
-      view={channelView(pact, MOCK_NOW)}
+      view={channelView(pact, session.now)}
       items={items}
-      viewerWallet={user.walletAddress}
+      viewerWallet={session.user.walletAddress}
     />
   );
 }

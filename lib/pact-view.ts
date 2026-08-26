@@ -36,6 +36,20 @@ function addDays(key: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The day keys of the evaluation period containing `now`.
+ *
+ * `countValidDays` and `hasFailed` both document the same precondition: the
+ * caller must window a member's sessions to a single period before calling
+ * them, because neither reads `rule.period` itself. This is that window, and
+ * it exists so there is exactly one implementation of it -- an unwindowed call
+ * counts a member's whole history, which after two weeks means nobody can ever
+ * fail again and the product quietly stops working.
+ */
+export function periodDayKeys(rule: RuleConfig, timezone: string, now: Date): string[] {
+  return rule.period === "day" ? [dayKeyFor(now, timezone)] : weekDayKeys(timezone, now);
+}
+
 /** The seven day keys of the crew-local week containing `now`, Monday first. */
 export function weekDayKeys(timezone: string, now: Date): string[] {
   const todayKey = dayKeyFor(now, timezone);

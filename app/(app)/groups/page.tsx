@@ -3,14 +3,14 @@ import { ChevronRight } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
 import { DashedRule, Panel } from "@/components/Panel";
 import { formatMoney } from "@/lib/money";
-// MOCK: swap for the real memberships query. See lib/mock-session.ts.
-import { getSession, type MockPact } from "@/lib/mock-session";
+import { getSession } from "@/lib/session";
+import type { PactView } from "@/lib/view";
 import { ordinal, ruleSentence, spell } from "@/lib/pact-view";
 
 export const metadata = { title: "Groups · Consistently" };
 
 /** Name, the crew's faces, where you stand, what is at stake — in that order. */
-function GroupRow({ pact }: { pact: MockPact }) {
+function GroupRow({ pact }: { pact: PactView }) {
   const rank = pact.crew.findIndex((m) => m.isViewer);
   const me = pact.crew[rank];
 

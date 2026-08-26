@@ -1,10 +1,9 @@
 import { AppHeader } from "@/components/AppHeader";
 import { Arrival } from "@/components/Arrival";
 import { BottomNav } from "@/components/BottomNav";
-import { getSession } from "@/lib/mock-session";
+import { getSession } from "@/lib/session";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  // MOCK: the signed-in user. See lib/mock-session.ts.
   const { user } = await getSession();
 
   return (

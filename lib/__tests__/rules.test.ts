@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ZodError } from "zod";
+import { periodDayKeys } from "@/lib/pact-view";
 import {
   RuleConfigSchema,
   isValidSession,
@@ -281,5 +282,28 @@ describe("cadence outlook", () => {
       met: false,
       outOfReach: true,
     });
+  });
+});
+
+describe("periodDayKeys", () => {
+  const weekly: RuleConfig = { ...gym, period: "week" };
+  const daily: RuleConfig = { ...gym, period: "day" };
+  const friday = new Date("2026-08-28T02:12:00.000Z"); // Fri 28 Aug, 09:12 Bangkok
+
+  it("returns the crew-local week, Monday first, for a weekly rule", () => {
+    const keys = periodDayKeys(weekly, "Asia/Bangkok", friday);
+    expect(keys).toHaveLength(7);
+    expect(keys[0]).toBe("2026-08-24");
+    expect(keys[6]).toBe("2026-08-30");
+  });
+
+  it("returns just today for a daily rule", () => {
+    expect(periodDayKeys(daily, "Asia/Bangkok", friday)).toEqual(["2026-08-28"]);
+  });
+
+  it("keys to the crew's timezone, not the server's", () => {
+    // 23:50 UTC on the 27th is already the 28th in Bangkok.
+    const lateUtc = new Date("2026-08-27T17:30:00.000Z");
+    expect(periodDayKeys(daily, "Asia/Bangkok", lateUtc)).toEqual(["2026-08-28"]);
   });
 });

@@ -3,8 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AppearanceSetting } from "@/components/AppearanceSetting";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
-// MOCK: swap for the signed-in Privy user. See lib/mock-session.ts.
-import { getSession } from "@/lib/mock-session";
+import { getSession } from "@/lib/session";
 
 export const metadata = { title: "Settings · Consistently" };
 

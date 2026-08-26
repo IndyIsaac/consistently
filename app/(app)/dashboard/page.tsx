@@ -2,14 +2,14 @@ import { CrewTable, type CrewRowData } from "@/components/CrewTable";
 import { FieldLabel, Panel } from "@/components/Panel";
 import { PactCard } from "@/components/PactCard";
 import { formatMoney } from "@/lib/money";
-// MOCK: swap for the real dashboard query. See lib/mock-session.ts.
-import { getSession, type MockPact } from "@/lib/mock-session";
+import { getSession } from "@/lib/session";
+import type { PactView } from "@/lib/view";
 import { isTodayDone, spell, standingLine, weekDayMarks } from "@/lib/pact-view";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Dashboard · Consistently" };
 
-function crewRows(pact: MockPact, now: Date): CrewRowData[] {
+function crewRows(pact: PactView, now: Date): CrewRowData[] {
   return pact.crew.map((member, i) => {
     const marks = weekDayMarks(member.sessions, pact.ruleConfig, pact.timezone, now);
 
