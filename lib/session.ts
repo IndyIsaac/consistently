@@ -47,7 +47,12 @@ export async function getChannel(
   pactId: string,
   viewerWallet: string,
 ): Promise<FeedItemDto[]> {
-  if (!LIVE) return (await mock()).getChannel(pactId, viewerWallet);
+  // Branches on the same condition as its siblings above, not on LIVE. A
+  // deployment with a database but nobody signed in serves the demo session,
+  // and its pact ids are the mock's -- querying the real feed for one would
+  // quietly return an empty channel under a furnished header.
+  const viewer = await currentUser();
+  if (!viewer) return (await mock()).getChannel(pactId, viewerWallet);
 
   const { getFeed } = await import("@/app/api/pacts/[id]/feed/route");
   return getFeed(pactId, viewerWallet);
