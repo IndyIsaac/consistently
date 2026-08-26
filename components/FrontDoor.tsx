@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useLoginWithEmail } from "@privy-io/react-auth";
 import { Lock, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,8 +17,15 @@ import { cn } from "@/lib/utils";
  *
  * Privy is the real mechanism: email, then a six-digit code, no password and so
  * no 2FA. `NEXT_PUBLIC_PRIVY_APP_ID` is inlined at build time; with nothing to
- * call, `sendCode` and `verifyCode` below run their own timings and hand you the
- * dev mock session in lib/mock-session.ts instead.
+ * call, app/providers.tsx does not mount the provider, `MOCK_AUTH` below runs
+ * its own timings, and every screen reads lib/mock-session.ts instead.
+ *
+ * The door itself never learns which of the two it is talking to. `Door` takes
+ * an `Auth` and drives the same four states either way, so the shape of the
+ * flow -- and every timing, error and focus move in it -- is the one thing that
+ * cannot drift between the demo path and the real one. The two wrappers at the
+ * foot of this file are the only place that branches, and they are separate
+ * components because `useLoginWithEmail` cannot be called conditionally.
  * ------------------------------------------------------------------------- */
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
@@ -26,40 +34,71 @@ const PRIVY_CONFIGURED = PRIVY_APP_ID.length > 0;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const CODE_LENGTH = 6;
 
-const NOT_WIRED =
-  "An app id is set but the Privy provider is not mounted yet. Clear NEXT_PUBLIC_PRIVY_APP_ID to use the dev session.";
+/**
+ * Each step resolves to an error string naming the problem, or null when it
+ * succeeded. Never rejects: the door renders failure, it does not catch it.
+ */
+type Auth = {
+  sendCode: (email: string) => Promise<string | null>;
+  verifyCode: (code: string) => Promise<string | null>;
+};
 
 function pause(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Resolves to an error string naming the problem, or null when the step succeeded. */
-async function sendCode(email: string): Promise<string | null> {
-  if (PRIVY_CONFIGURED) {
-    // Real call goes here once <PrivyProvider> is mounted:
-    //   await useLoginWithEmail().sendCode({ email })
-    return NOT_WIRED;
-  }
-  if (!EMAIL_RE.test(email)) return "That is not an email address.";
-  await pause(600);
-  return null;
-}
+/**
+ * The zero-env-var path. The validation is real and the waits are roughly what
+ * Privy's own round trips cost, so the demo rehearses at the speed it will run.
+ */
+const MOCK_AUTH: Auth = {
+  async sendCode(email) {
+    if (!EMAIL_RE.test(email)) return "That is not an email address.";
+    await pause(600);
+    return null;
+  },
+  async verifyCode(code) {
+    if (!new RegExp(`^\\d{${CODE_LENGTH}}$`).test(code)) return "That code is not six digits.";
+    await pause(650);
+    return null;
+  },
+};
 
-async function verifyCode(code: string): Promise<string | null> {
-  if (PRIVY_CONFIGURED) {
-    // Real call:  await useLoginWithEmail().loginWithCode({ code })
-    return NOT_WIRED;
-  }
-  if (!new RegExp(`^\\d{${CODE_LENGTH}}$`).test(code)) return "That code is not six digits.";
-  await pause(650);
-  return null;
+/**
+ * Privy throws on a bad address or a wrong code rather than resolving with a
+ * verdict, and its messages name its own internals. Both are turned into the
+ * one sentence the door can show, in the product's voice.
+ */
+function privyAuth(privy: ReturnType<typeof useLoginWithEmail>): Auth {
+  return {
+    async sendCode(email) {
+      if (!EMAIL_RE.test(email)) return "That is not an email address.";
+      try {
+        await privy.sendCode({ email });
+        return null;
+      } catch {
+        return "That address could not be reached. Try again.";
+      }
+    },
+    async verifyCode(code) {
+      if (!new RegExp(`^\\d{${CODE_LENGTH}}$`).test(code)) return "That code is not six digits.";
+      try {
+        await privy.loginWithCode({ code });
+        return null;
+      } catch {
+        // Privy invalidates the code after five attempts and does not say which
+        // failure this was. "Ask for another" covers both without guessing.
+        return "That code did not work. Ask for another.";
+      }
+    },
+  };
 }
 
 type Step = "rest" | "email" | "code" | "arriving";
 
 const EMPTY_CODE = Array<string>(CODE_LENGTH).fill("");
 
-export function FrontDoor() {
+function Door({ auth, privyConfigured }: { auth: Auth; privyConfigured: boolean }) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
 
@@ -83,7 +122,7 @@ export function FrontDoor() {
       setBusy(true);
       setError(null);
 
-      const failure = await verifyCode(code);
+      const failure = await auth.verifyCode(code);
       if (failure) {
         verifying.current = false;
         setBusy(false);
@@ -96,7 +135,7 @@ export function FrontDoor() {
       setStep("arriving");
       setTimeout(() => router.push("/dashboard"), reduceMotion ? 0 : 620);
     },
-    [reduceMotion, router],
+    [auth, reduceMotion, router],
   );
 
   async function submitEmail(event: React.FormEvent) {
@@ -104,7 +143,7 @@ export function FrontDoor() {
     setError(null);
     setBusy(true);
 
-    const failure = await sendCode(email.trim());
+    const failure = await auth.sendCode(email.trim());
     setBusy(false);
     if (failure) {
       setError(failure);
@@ -277,7 +316,7 @@ export function FrontDoor() {
                     Use another address
                   </button>
 
-                  {!PRIVY_CONFIGURED && (
+                  {!privyConfigured && (
                     <p className="text-[12px] leading-relaxed text-grey-on-door">
                       No Privy app id is set. Any six digits will do.
                     </p>
@@ -306,6 +345,30 @@ export function FrontDoor() {
       </AnimatePresence>
     </div>
   );
+}
+
+/**
+ * Mounted only when an app id is set, so the hook always has its provider.
+ * `useMemo` keeps the Auth identity stable across renders -- `enter` depends on
+ * it, and a fresh object every render would rebuild the callback mid-typing.
+ */
+function PrivyDoor() {
+  const privy = useLoginWithEmail();
+  const auth = useMemo(() => privyAuth(privy), [privy]);
+  return <Door auth={auth} privyConfigured />;
+}
+
+/**
+ * The front door. Which of the two mechanisms is behind it is decided here and
+ * nowhere else -- see the note at the top of this file.
+ *
+ * Signing in lands on /dashboard either way. Whether the user is actually let
+ * in is app/(app)/layout.tsx's decision, not this one: it holds the wallet
+ * gate, and putting the redirect there means a direct visit to /dashboard is
+ * gated too, which a redirect from here would not cover.
+ */
+export function FrontDoor() {
+  return PRIVY_CONFIGURED ? <PrivyDoor /> : <Door auth={MOCK_AUTH} privyConfigured={false} />;
 }
 
 function FormError({ message }: { message: string | null }) {

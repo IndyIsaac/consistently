@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Manrope, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { Providers } from "./providers";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
@@ -46,7 +47,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body className="flex min-h-full flex-col bg-ground text-ink">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <Providers>{children}</Providers>
+        </ThemeProvider>
       </body>
     </html>
   );
