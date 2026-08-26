@@ -17,6 +17,13 @@ import { NextResponse, type NextRequest } from "next/server";
 const PRIVY_TOKEN = "privy-token";
 export const INVITE_COOKIE = "pact-invite";
 
+/**
+ * With no Privy app there is no sign-in to enforce, and the whole app is the
+ * demo in lib/mock-session.ts. Redirecting on a cookie that can never be set
+ * would lock the zero-env-var path out of its own dashboard.
+ */
+const SIGN_IN_ENFORCED = (process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "").length > 0;
+
 /** The signed-in interior. `/pacts` covers `/pacts/[id]` and `/pacts/new`. */
 const INTERIOR = ["/dashboard", "/groups", "/pacts", "/settings"];
 
@@ -45,6 +52,8 @@ export function proxy(req: NextRequest) {
     });
     return res;
   }
+
+  if (!SIGN_IN_ENFORCED) return NextResponse.next();
 
   const signedIn = req.cookies.has(PRIVY_TOKEN);
   const interior = INTERIOR.some((p) => url.pathname === p || url.pathname.startsWith(`${p}/`));
