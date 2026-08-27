@@ -119,9 +119,23 @@ still stake, because the sponsor pays the fee.
 Next 16 renamed `middleware` to `proxy`, and its docs are explicit that it runs separately
 from render code — hence cookie presence there and the real check in the layout.
 
-**The Google button is not wired and will not be.** It is rendered visibly unavailable —
-disabled, dashed, labelled `NOT WIRED` — rather than live, on purpose: a dead button someone
-presses on stage is worse than no button.
+**Two doors, one integration.** Privy is not a wallet — it is the thing that makes one, which
+is what lets the app take both. Somebody who already has Phantom connects and signs with it,
+and nothing is created or custodied for them. Somebody who has never held a token gets an
+embedded wallet during the email sign-in and is never asked what a wallet is. That second
+case is `PRODUCT.md`'s actual user; the first is the crew this was built for, who turn out to
+have Phantom already.
+
+`createOnLogin` is `users-without-wallets`, which is what stops the two colliding: a member
+who arrives with Phantom is not handed a second, empty wallet to fund separately. And the
+stake is signed by the wallet whose address the server recorded, not `wallets[0]` — a member
+with both has two, in no guaranteed order, and signing with the wrong one produces a
+transaction that succeeds on chain and belongs to nobody.
+
+**A malformed app id used to 500 the landing page.** Privy throws during render on an id that
+is not exactly 25 characters, and a React error boundary cannot help — the throw is in the
+server pass. `app/providers.tsx` mirrors that rule and checks before mounting, so a
+half-pasted string degrades to the demo instead of a stack trace.
 
 ## Themes
 
