@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "preflight": "tsx scripts/preflight.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "new-wallet": "tsx scripts/new-wallet.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -43,6 +47,7 @@
     "eslint-config-next": "16.3.2",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.11"
