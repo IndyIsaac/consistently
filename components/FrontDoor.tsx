@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useLogin, useLoginWithEmail } from "@privy-io/react-auth";
+import { useLoginWithEmail, useLoginWithSiws } from "@privy-io/react-auth";
+import { useStandardWallets } from "@privy-io/react-auth/solana";
+import bs58 from "bs58";
 import { TriangleAlert, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +35,17 @@ const PRIVY_CONFIGURED = PRIVY_APP_ID.length > 0;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const CODE_LENGTH = 6;
+
+/**
+ * One installed wallet, ready to be pressed. Resolves to an error string or
+ * null, like every other step here.
+ */
+type WalletOption = {
+  name: string;
+  /** A data: URI the wallet supplies for itself. */
+  icon?: string;
+  connect: () => Promise<string | null>;
+};
 
 /**
  * Each step resolves to an error string naming the problem, or null when it
@@ -101,12 +114,12 @@ const EMPTY_CODE = Array<string>(CODE_LENGTH).fill("");
 function Door({
   auth,
   privyConfigured,
-  onConnectWallet,
+  wallets,
 }: {
   auth: Auth;
   privyConfigured: boolean;
-  /** Absent when there is no Privy app, and the button below says so. */
-  onConnectWallet?: () => void;
+  /** Null when there is no Privy app. Empty when nothing is installed. */
+  wallets: WalletOption[] | null;
 }) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
@@ -267,7 +280,7 @@ function Door({
 
                 <SubmitButton busy={busy}>{busy ? "SENDING" : "CONTINUE"}</SubmitButton>
                 <OrRule />
-                <WalletButton onConnect={onConnectWallet} />
+                <WalletOptions wallets={wallets} onFailure={setError} />
               </motion.form>
             )}
 
@@ -363,35 +376,92 @@ function Door({
  */
 function PrivyDoor() {
   const privy = useLoginWithEmail();
-  const { login } = useLogin();
   const auth = useMemo(() => privyAuth(privy), [privy]);
 
+  const { ready, wallets: detected } = useStandardWallets();
+  const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws();
+
   /**
-   * The wallet path, scoped to wallets only -- the door already has its own
-   * email field, and a modal offering it again would be two ways to do one
-   * thing. Privy handles detection, connection and the signature; what the
-   * member sees is Phantom's own prompt, which is the one they recognise.
+   * Sign-In With Solana, by hand.
+   *
+   * Privy will run this behind its own modal, and the modal is the problem:
+   * this door is mono on an inverted ground, and a generic dark sheet landing
+   * on top of it reads as someone else's product. So the wallets are listed
+   * in the door's own language and the three steps happen underneath --
+   * connect, sign the message Privy generates, hand the signature back.
+   *
+   * The list comes from the Solana wallet-standard registry, which is how
+   * Phantom announces itself. Nothing is hardcoded: whatever the member has
+   * installed is what they are offered, and a member with none is told so.
    */
-  return (
-    <Door
-      auth={auth}
-      privyConfigured
-      onConnectWallet={() => login({ loginMethods: ["wallet"] })}
-    />
-  );
+  const wallets = useMemo<WalletOption[]>(() => {
+    if (!ready) return [];
+
+    return detected
+      .filter((w) => w.features["standard:connect"] && w.features["solana:signMessage"])
+      /**
+       * The registry contains more than installed extensions.
+       *
+       * Privy registers its own embedded wallet there, which would offer
+       * "sign in with Privy" to somebody whose only other option is the Privy
+       * email field directly above it. And it registers a WalletConnect
+       * wallet, which needs a WalletConnect project id this app does not set
+       * -- so it would open, wait, and fail.
+       *
+       * Both carry a marker at runtime that is not in the published types.
+       * Reading them through a cast is uglier than matching on the name and
+       * survives a rename, which the name does not.
+       */
+      .filter((w) => {
+        const flags = w as unknown as {
+          isPrivyWallet?: boolean;
+          isWalletConnectSolana?: boolean;
+        };
+        return !flags.isPrivyWallet && !flags.isWalletConnectSolana;
+      })
+      .map((wallet) => ({
+        name: wallet.name,
+        icon: wallet.icon,
+        connect: async () => {
+          try {
+            const { accounts } = await wallet.features["standard:connect"]!.connect();
+            const account = accounts[0];
+            if (!account) return `${wallet.name} did not offer an account.`;
+
+            const message = await generateSiwsMessage({ address: account.address });
+            const [signed] = await wallet.features["solana:signMessage"]!.signMessage({
+              account,
+              message: new TextEncoder().encode(message),
+            });
+
+            await loginWithSiws({
+              signature: bs58.encode(signed.signature),
+              message,
+              walletClientType: wallet.name.toLowerCase().replace(/\s+/g, "_"),
+              connectorType: "injected",
+            });
+            return null;
+          } catch (e) {
+            // Closing the wallet is the commonest path through here and is not
+            // worth a sentence about signatures.
+            const reason = e instanceof Error ? e.message : "";
+            return /reject|denied|cancel|close/i.test(reason)
+              ? `${wallet.name} was closed before signing.`
+              : `Could not sign in with ${wallet.name}.`;
+          }
+        },
+      }));
+  }, [ready, detected, generateSiwsMessage, loginWithSiws]);
+
+  return <Door auth={auth} privyConfigured wallets={wallets} />;
 }
 
-/**
- * The front door. Which of the two mechanisms is behind it is decided here and
- * nowhere else -- see the note at the top of this file.
- *
- * Signing in lands on /dashboard either way. Whether the user is actually let
- * in is app/(app)/layout.tsx's decision, not this one: it holds the wallet
- * gate, and putting the redirect there means a direct visit to /dashboard is
- * gated too, which a redirect from here would not cover.
- */
 export function FrontDoor() {
-  return PRIVY_CONFIGURED ? <PrivyDoor /> : <Door auth={MOCK_AUTH} privyConfigured={false} />;
+  return PRIVY_CONFIGURED ? (
+    <PrivyDoor />
+  ) : (
+    <Door auth={MOCK_AUTH} privyConfigured={false} wallets={null} />
+  );
 }
 
 function FormError({ message }: { message: string | null }) {
@@ -446,41 +516,75 @@ function OrRule() {
  * Most people this is built for have never held a token, and the email field
  * above is for them -- a wallet gets made during sign-in and they are never
  * asked what one is. But a crew that already has Phantom should not be made to
- * go the long way round and then fund a second, empty wallet.
+ * go the long way round and then fund a second, empty wallet they would have
+ * to top up separately.
+ *
+ * Every wallet the browser announces is listed here, in the door's own type
+ * and on the door's own ground. Privy will do this behind its modal instead,
+ * and the modal is a fine modal that belongs to a different product -- landing
+ * it on this surface undoes the one thing the landing page is for.
  *
  * This slot used to hold a Google button that was deliberately dead, on the
  * grounds that a dead button someone presses on stage is worse than no button.
  * The reasoning stands and the conclusion flipped: there is something behind
- * it now. Where there is not -- no Privy app, the zero-env-var path -- it says
- * so rather than failing under a thumb.
+ * it now.
  */
-function WalletButton({ onConnect }: { onConnect?: () => void }) {
-  if (!onConnect) {
+function WalletOptions({
+  wallets,
+  onFailure,
+}: {
+  wallets: WalletOption[] | null;
+  onFailure: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+
+  if (wallets === null) {
     return (
-      <button
-        type="button"
-        disabled
-        aria-disabled="true"
-        title="Connecting a wallet needs a Privy app id."
-        className="flex w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-full border border-dashed border-door-ink/20 py-3.5 text-door-ink/55"
-      >
-        <Wallet className="size-3.5" aria-hidden="true" />
-        <span className="text-[13px] tracking-[0.04em]">Wallet</span>
-        <span className="text-[10px] tracking-[0.2em] text-door-ink/40 uppercase">
-          not configured
-        </span>
-      </button>
+      <p className="text-center text-[12px] leading-relaxed text-grey-on-door">
+        Connecting a wallet needs a Privy app id.
+      </p>
+    );
+  }
+
+  if (wallets.length === 0) {
+    return (
+      <p className="text-center text-[12px] leading-relaxed text-grey-on-door">
+        No Solana wallet in this browser. The line above makes you one.
+      </p>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={onConnect}
-      className="flex w-full items-center justify-center gap-2.5 rounded-full border border-door-ink/25 py-3.5 text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door"
-    >
-      <Wallet className="size-3.5" aria-hidden="true" />
-      <span className="text-[13px] tracking-[0.04em]">Connect a wallet</span>
-    </button>
+    <div className="flex flex-col gap-2">
+      {wallets.map((wallet) => (
+        <button
+          key={wallet.name}
+          type="button"
+          disabled={busy !== null}
+          onClick={async () => {
+            setBusy(wallet.name);
+            const failure = await wallet.connect();
+            setBusy(null);
+            if (failure) onFailure(failure);
+            // Success needs no branch: Privy's state change re-renders the tree
+            // and app/(app)/layout.tsx decides where they land.
+          }}
+          className="flex w-full items-center justify-center gap-2.5 rounded-full border border-door-ink/25 py-3.5 text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-door-ink/25 disabled:hover:bg-transparent disabled:hover:text-door-ink"
+        >
+          {wallet.icon ? (
+            // The wallet's own mark, from its own registry entry. Next's Image
+            // cannot take an arbitrary data: URI and there is nothing to
+            // optimise about a 16px icon the browser already holds.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={wallet.icon} alt="" aria-hidden="true" className="size-4 rounded-sm" />
+          ) : (
+            <Wallet className="size-3.5" aria-hidden="true" />
+          )}
+          <span className="text-[13px] tracking-[0.04em]">
+            {busy === wallet.name ? "Waiting on the wallet" : wallet.name}
+          </span>
+        </button>
+      ))}
+    </div>
   );
 }
