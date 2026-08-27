@@ -1,6 +1,8 @@
 "use client";
 
 import { TriangleAlert } from "lucide-react";
+import { FIELD } from "@/components/Panel";
+import { Stepper } from "@/components/Stepper";
 import type { RuleConfig } from "@/lib/rules";
 
 /* ---------------------------------------------------------------------------
@@ -23,20 +25,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       {children}
     </label>
   );
-}
-
-const field =
-  "rounded-xl border border-hairline bg-ground px-3 py-2 text-[14px] text-ink outline-none transition-colors focus:border-ink";
-
-/**
- * Parses a number input's raw string, falling back to `fallback` unless the result is an
- * integer within [min, max]. Rejects non-numbers, decimals, and out-of-range values (not just
- * NaN/Infinity) so a cleared field never writes 0 -- or any other schema-invalid number -- into
- * RuleConfig; the field simply keeps its previous value until the user types something valid.
- */
-function parseNumber(raw: string, fallback: number, min: number, max: number = Infinity): number {
-  const n = Number(raw);
-  return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 }
 
 export function RuleEditor({
@@ -65,19 +53,18 @@ export function RuleEditor({
   return (
     <div className="divide-y divide-hairline">
       <Row label="Times per week">
-        <input
-          type="number"
+        <Stepper
+          ariaLabel="times per week"
+          value={value.cadence}
           min={1}
           max={7}
-          className={`${field} w-20 text-right`}
-          value={value.cadence}
-          onChange={(e) => set("cadence", parseNumber(e.target.value, value.cadence, 1, 7))}
+          onChange={(n) => set("cadence", n)}
         />
       </Row>
 
       <Row label="Proof">
         <select
-          className={field}
+          className={FIELD}
           value={value.sessionType}
           onChange={(e) => setSessionType(e.target.value as RuleConfig["sessionType"])}
         >
@@ -87,41 +74,51 @@ export function RuleEditor({
       </Row>
 
       {value.sessionType === "checkin_checkout" && (
-        <Row label="Minimum minutes">
-          <input
-            type="number"
-            min={1}
-            className={`${field} w-20 text-right`}
+        <Row label="Minimum session">
+          <Stepper
+            ariaLabel="minimum minutes"
             value={value.minDurationMins ?? 30}
-            onChange={(e) =>
-              set("minDurationMins", parseNumber(e.target.value, value.minDurationMins ?? 30, 1))
-            }
+            min={1}
+            max={600}
+            // Nobody agrees a thirty-one minute rule. Five is the grain these
+            // are actually spoken in, and typing still reaches any number.
+            step={5}
+            suffix="min"
+            onChange={(n) => set("minDurationMins", n)}
           />
         </Row>
       )}
 
+      {/* The one two-part control, and the only row that does not fit beside
+          its own label on a phone. It takes a line of its own rather than
+          being squeezed: two time fields and the word between them are what a
+          window is, and shrinking any of the three to make the row fit reads
+          worse than giving it the width. */}
       <div>
-        <Row label="Allowed between">
-          <span className="flex items-center gap-2">
+        <div className="py-3">
+          <span className="text-[14px] text-grey-on-ground">Allowed between</span>
+          <div className="mt-3 flex items-center gap-2">
             <input
               type="time"
-              className={field}
+              aria-label="Earliest a session may start"
+              className={`${FIELD} figure min-w-0 flex-1`}
               value={value.windowStart}
               onChange={(e) => set("windowStart", e.target.value)}
             />
-            <span className="text-[13px] text-grey-on-ground">and</span>
+            <span className="shrink-0 text-[13px] text-grey-on-ground">and</span>
             <input
               type="time"
-              className={field}
+              aria-label="Latest a session may start"
+              className={`${FIELD} figure min-w-0 flex-1`}
               value={value.windowEnd}
               onChange={(e) => set("windowEnd", e.target.value)}
             />
-          </span>
-        </Row>
+          </div>
+        </div>
         {windowInvalid && (
           <p
             role="alert"
-            className="flex items-start justify-end gap-2 pb-3 text-[13px] text-ink"
+            className="flex items-start gap-2 pb-3 text-[13px] text-ink"
           >
             <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
             The start has to come before the end.
@@ -130,30 +127,23 @@ export function RuleEditor({
       </div>
 
       <Row label="Misses allowed">
-        <input
-          type="number"
-          min={0}
-          className={`${field} w-20 text-right`}
+        <Stepper
+          ariaLabel="misses allowed"
           value={value.failsWhenMissedExceeds}
-          onChange={(e) =>
-            set(
-              "failsWhenMissedExceeds",
-              parseNumber(e.target.value, value.failsWhenMissedExceeds, 0),
-            )
-          }
+          min={0}
+          max={value.cadence}
+          onChange={(n) => set("failsWhenMissedExceeds", n)}
         />
       </Row>
 
-      <Row label="Runs for (weeks)">
-        <input
-          type="number"
+      <Row label="Runs for">
+        <Stepper
+          ariaLabel="weeks it runs for"
+          value={value.durationPeriods}
           min={1}
           max={52}
-          className={`${field} w-20 text-right`}
-          value={value.durationPeriods}
-          onChange={(e) =>
-            set("durationPeriods", parseNumber(e.target.value, value.durationPeriods, 1, 52))
-          }
+          suffix={value.durationPeriods === 1 ? "week" : "weeks"}
+          onChange={(n) => set("durationPeriods", n)}
         />
       </Row>
 

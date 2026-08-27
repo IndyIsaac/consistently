@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { ArrowRight, TriangleAlert } from "lucide-react";
-import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
+import { DashedRule, FIELD, FieldLabel, Panel } from "@/components/Panel";
 import { RuleEditor } from "@/components/RuleEditor";
 import { currencySymbol } from "@/lib/money";
 import { ruleSentence } from "@/lib/pact-view";
@@ -41,9 +41,6 @@ const DEFAULT_RULE: RuleConfig = {
 const CURRENCIES = ["THB", "USD", "GBP", "EUR", "JPY"];
 
 const EXAMPLE = "Gym five days a week, thirty minutes minimum, photo in and photo out. ฿1,000 if you miss.";
-
-const field =
-  "rounded-xl border border-hairline bg-ground px-3 py-2 text-[14px] text-ink outline-none transition-colors focus:border-ink";
 
 export function NewPact() {
   const router = useRouter();
@@ -188,27 +185,31 @@ export function NewPact() {
                   value={name}
                   onChange={(e) => setName(e.target.value.slice(0, 80))}
                   placeholder="Five a week"
-                  className={`${field} min-w-0 flex-1 text-right`}
+                  className={`${FIELD} min-w-0 flex-1 text-right`}
                 />
               </label>
 
               <label className="flex items-center justify-between gap-4 py-3">
                 <span className="text-[14px] text-grey-on-ground">Stake each</span>
                 <span className="flex items-center gap-2">
+                  {/* Typed, not stepped: a stake is ฿1,000 or £20, and a
+                      control that moves it by one would be a joke. The native
+                      spinner is off globally -- see app/globals.css. */}
                   <input
                     type="number"
+                    inputMode="decimal"
                     min={1}
                     value={stakeAmount}
                     onChange={(e) => {
                       const n = Number(e.target.value);
                       if (Number.isFinite(n) && n >= 0) setStakeAmount(n);
                     }}
-                    className={`${field} w-28 text-right`}
+                    className={`${FIELD} figure w-28 text-right`}
                   />
                   <select
                     value={stakeCurrency}
                     onChange={(e) => setStakeCurrency(e.target.value)}
-                    className={field}
+                    className={FIELD}
                   >
                     {CURRENCIES.map((c) => (
                       <option key={c} value={c}>

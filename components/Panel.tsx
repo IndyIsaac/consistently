@@ -51,3 +51,17 @@ export function DashedRule({ className }: { className?: string }) {
     />
   );
 }
+
+/**
+ * One control, one height.
+ *
+ * Every field in a form column -- text, select, time -- is the same 44px pill
+ * as components/Stepper.tsx. Mixed heights read as a ragged edge down the
+ * column before anyone can say why, and 44 is also the smallest square a thumb
+ * reliably hits, which this being a phone product settles.
+ *
+ * Shared rather than declared per form, because the two that had their own
+ * copy had already started to differ.
+ */
+export const FIELD =
+  "h-11 rounded-full border border-hairline bg-ground px-4 text-[14px] text-ink outline-none transition-colors focus:border-ink";
