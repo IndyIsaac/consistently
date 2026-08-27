@@ -61,11 +61,21 @@ export function Providers({ children }: { children: React.ReactNode }) {
         loginMethods: ["email", "wallet"],
         externalWallets: { solana: { connectors: toSolanaWalletConnectors() } },
         embeddedWallets: { solana: { createOnLogin: "users-without-wallets" } },
-        // The product has exactly two grounds and the front door is always the
-        // inverse of the app. Privy's own modal cannot follow that flip, so it
-        // is pinned to the door's value: near-black, which is the light-theme
-        // door and reads as deliberate against the dark one.
-        appearance: { theme: "dark", accentColor: "#FAFAFA" },
+        appearance: {
+          // `walletChainType` defaults to "ethereum-only", which would put
+          // MetaMask in front of a crew who came to connect Phantom. This is a
+          // Solana product; there is no second chain to offer.
+          walletChainType: "solana-only",
+          // Whatever is actually installed comes first, then the three Solana
+          // wallets worth naming for somebody who has none of them yet.
+          walletList: ["detected_solana_wallets", "phantom", "solflare", "backpack"],
+          // The product has exactly two grounds and the front door is always
+          // the inverse of the app. Privy's own modal cannot follow that flip,
+          // so it is pinned to the door's value: near-black, which is the
+          // light-theme door and reads as deliberate against the dark one.
+          theme: "dark",
+          accentColor: "#FAFAFA",
+        },
       }}
     >
       {children}
