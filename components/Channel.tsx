@@ -473,7 +473,11 @@ export function Channel({
                 composer is replaced rather than disabled: a camera you may not
                 use is a worse answer than the one thing you can do. */}
             {needsStake ? (
-              <StakeSheet pactId={view.pactId} stakeLabel={view.stake} />
+              <StakeSheet
+                pactId={view.pactId}
+                stakeLabel={view.stake}
+                viewerWallet={viewerWallet}
+              />
             ) : (
               <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
                 <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />

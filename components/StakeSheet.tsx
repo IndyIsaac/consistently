@@ -50,7 +50,16 @@ function bytesToB64(bytes: Uint8Array): string {
 
 type Quote = { kind: "swap" | "transfer"; inAmount: string; venues: string[] };
 
-export function StakeSheet({ pactId, stakeLabel }: { pactId: string; stakeLabel: string }) {
+export function StakeSheet({
+  pactId,
+  stakeLabel,
+  viewerWallet,
+}: {
+  pactId: string;
+  stakeLabel: string;
+  /** The address the server has on record. See the note by `wallet` below. */
+  viewerWallet: string;
+}) {
   const router = useRouter();
   const { getAccessToken } = usePrivy();
   const { wallets } = useWallets();
@@ -95,9 +104,20 @@ export function StakeSheet({ pactId, stakeLabel }: { pactId: string; stakeLabel:
   const quote = priced?.mint === token.mint ? priced.quote : null;
 
   async function stake() {
-    const wallet = wallets[0];
+    /**
+     * Not `wallets[0]`. A member who connected Phantom and also has an embedded
+     * wallet has two, in no guaranteed order -- and the stake has to be signed
+     * by the one the server wrote down, because that is the address the pact's
+     * membership is keyed to. Signing with the other produces a transaction
+     * that succeeds on chain and belongs to nobody.
+     */
+    const wallet = wallets.find((w) => w.address === viewerWallet);
     if (!wallet) {
-      setError("No wallet is connected.");
+      setError(
+        wallets.length > 0
+          ? "This crew is expecting a different wallet. Connect the one you joined with."
+          : "No wallet is connected.",
+      );
       return;
     }
 

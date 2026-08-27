@@ -46,7 +46,14 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
   // render is impure, and the back-off wants the moment polling began anyway.
   const startedAt = useRef(0);
 
-  const wallet = wallets[0] ?? null;
+  /**
+   * Nothing is on record yet, so there is no address to match against. Prefer
+   * the wallet Privy considers the user's primary -- for somebody who signed
+   * in *with* Phantom that is Phantom, and handing them an embedded wallet's
+   * address instead would ask them to fund an account they will never use.
+   */
+  const primary = user?.wallet?.address;
+  const wallet = wallets.find((w) => w.address === primary) ?? wallets[0] ?? null;
 
   /** Every call carries the bearer as well as the cookie -- see lib/auth.ts. */
   const authed = useCallback(
@@ -195,7 +202,7 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
         ) : (
           <>
             <p className="mt-3 text-[15px] leading-relaxed text-ink">
-              Signing in made you one. Send it anything on Solana and the door opens.
+              Send it anything on Solana and the door opens.
             </p>
 
             <div className="mt-6 flex flex-col items-center">
