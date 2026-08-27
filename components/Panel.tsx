@@ -66,8 +66,12 @@ export function DashedRule({ className }: { className?: string }) {
  * as the field crowding the card no matter how exact the gutter is. `surface`
  * separates the control from the card with a value instead of a second line.
  *
+ * `px-5` and not less: at a 22px radius the corners are still turning at 16px
+ * in, so `px-4` sets the text and the chevron inside the curve rather than
+ * clear of it. That is what reads as a field crowding its own edge.
+ *
  * No `outline-none`: the global `:focus-visible` rule in app/globals.css is
  * the focus state, and it is the same one every other control in the product
  * uses.
  */
-export const FIELD = "h-11 rounded-full bg-surface px-4 text-[14px] text-ink transition-colors";
+export const FIELD = "h-11 rounded-full bg-surface px-5 text-[14px] text-ink transition-colors";

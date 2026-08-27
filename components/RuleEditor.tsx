@@ -2,6 +2,7 @@
 
 import { TriangleAlert } from "lucide-react";
 import { FIELD } from "@/components/Panel";
+import { Select } from "@/components/Select";
 import { Stepper } from "@/components/Stepper";
 import type { RuleConfig } from "@/lib/rules";
 
@@ -63,14 +64,13 @@ export function RuleEditor({
       </Row>
 
       <Row label="Proof">
-        <select
-          className={FIELD}
+        <Select
           value={value.sessionType}
           onChange={(e) => setSessionType(e.target.value as RuleConfig["sessionType"])}
         >
           <option value="checkin">Check in only</option>
           <option value="checkin_checkout">Check in and out</option>
-        </select>
+        </Select>
       </Row>
 
       {value.sessionType === "checkin_checkout" && (

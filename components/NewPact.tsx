@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { ArrowRight, TriangleAlert } from "lucide-react";
 import { DashedRule, FIELD, FieldLabel, Panel } from "@/components/Panel";
+import { Select } from "@/components/Select";
 import { RuleEditor } from "@/components/RuleEditor";
 import { currencySymbol } from "@/lib/money";
 import { ruleSentence } from "@/lib/pact-view";
@@ -206,17 +207,16 @@ export function NewPact() {
                     }}
                     className={`${FIELD} figure w-28 text-right`}
                   />
-                  <select
+                  <Select
                     value={stakeCurrency}
                     onChange={(e) => setStakeCurrency(e.target.value)}
-                    className={FIELD}
                   >
                     {CURRENCIES.map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </span>
               </label>
             </div>
