@@ -49,7 +49,17 @@ function GroupRow({ pact }: { pact: PactView }) {
 
           <div className="flex items-end justify-between gap-6 sm:justify-end sm:gap-9">
             <div className="sm:w-[8.5rem] sm:text-right">
-              {me ? (
+              {/* A member who has joined but not paid has no standing. "0 of 5"
+                  would read as being behind, which is a different thing and
+                  lets them believe they are in when they are not. */}
+              {pact.viewerStatus === "invited" ? (
+                <>
+                  <p className="text-[15px] font-semibold text-ink">Not staked</p>
+                  <p className="mt-0.5 text-[13px] text-grey-on-ground">
+                    the crew is waiting
+                  </p>
+                </>
+              ) : me ? (
                 <>
                   <p className="figure text-[15px] font-semibold text-ink">
                     {me.daysDone}
@@ -80,6 +90,7 @@ function GroupRow({ pact }: { pact: PactView }) {
 export default async function GroupsPage() {
   const { currency, pacts } = await getSession();
   const onThisWeek = pacts.reduce((sum, p) => sum + p.stakeAmount, 0);
+  const owing = pacts.filter((p) => p.viewerStatus === "invited");
 
   return (
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-10 sm:px-8 sm:pt-14">
@@ -92,7 +103,12 @@ export default async function GroupsPage() {
           <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-ground">
             {pacts.length === 0
               ? "Nothing agreed, nothing at stake. A pact starts with a rule and a number."
-              : `${formatMoney(onThisWeek, currency)} rides on this week.`}
+              : owing.length > 0
+                ? `${formatMoney(
+                    owing.reduce((sum, p) => sum + p.stakeAmount, 0),
+                    currency,
+                  )} to put in before ${owing.length === 1 ? "a crew" : "two crews"} can start.`
+                : `${formatMoney(onThisWeek, currency)} rides on this week.`}
           </p>
         </div>
 

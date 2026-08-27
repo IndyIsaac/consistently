@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { DayMarkers } from "@/components/DayMarkers";
 import { formatMoney } from "@/lib/money";
@@ -22,6 +24,8 @@ export type PactCardPact = {
   stakeAmount: number;
   stakeCurrency: string;
   crew: PactCardMember[];
+  /** Prisma `MemberStatus` for the viewer. `invited` means they have not paid. */
+  viewerStatus: "invited" | "staked" | "passed" | "failed" | "left";
 };
 
 /** Your week in one pact: where you are, the day markers, what rides on it. */
@@ -32,6 +36,48 @@ export function PactCard({ pact, now }: { pact: PactCardPact; now: Date }) {
 
   const marks = weekDayMarks(me.sessions, pact.ruleConfig, pact.timezone, now);
   const todayDone = isTodayDone(marks);
+
+  /**
+   * A member who has joined but not paid has no standing to draw. Showing them
+   * "0 of 5" would read as being behind, which is a different thing entirely
+   * and lets them believe they are in when they are not. What they have is one
+   * outstanding action, so that is the whole card.
+   */
+  if (pact.viewerStatus === "invited") {
+    return (
+      <Link
+        href={`/pacts/${pact.id}`}
+        className="group block rounded-[22px] border border-hairline bg-panel p-6 shadow-panel transition-[border-color,box-shadow] duration-200 hover:border-ink/30 hover:shadow-panel-hover"
+      >
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="truncate text-[15px] font-bold tracking-[-0.015em] text-ink">
+            {pact.name}
+          </h2>
+          <span className="shrink-0 text-[13px] text-grey-on-ground">
+            {pact.crew.length} {pact.crew.length === 1 ? "member" : "members"}
+          </span>
+        </div>
+
+        <p className="figure mt-5 text-[3rem] leading-[0.95] font-extrabold text-ink">
+          {formatMoney(pact.stakeAmount, pact.stakeCurrency)}
+        </p>
+
+        <p className="mt-2.5 max-w-[34ch] text-[14px] leading-relaxed text-grey-on-ground">
+          Your stake is not in yet. The crew does not start until it is.
+        </p>
+
+        <DashedRule className="mt-7" />
+
+        <span className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink">
+          Put it in
+          <ArrowRight
+            className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5"
+            aria-hidden="true"
+          />
+        </span>
+      </Link>
+    );
+  }
 
   return (
     <Panel>
