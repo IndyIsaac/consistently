@@ -103,7 +103,7 @@ export function Stepper({
   }
 
   return (
-    <div className="inline-flex h-11 items-center rounded-full border border-hairline bg-ground">
+    <div className="inline-flex h-11 items-center rounded-full bg-surface">
       <Button
         label={`Decrease ${ariaLabel}`}
         disabled={atMin}
@@ -134,9 +134,9 @@ export function Stepper({
           // Sized to its content so the suffix sits against the figure rather
           // than floating at the end of a fixed-width box.
           style={{ width: `${Math.max(1, String(typing ?? value).length)}ch` }}
-          className="figure bg-transparent text-center text-[15px] text-ink outline-none"
+          className="figure bg-transparent text-center text-[15px] text-ink"
         />
-        {suffix && <span className="text-[13px] text-grey-on-ground">{suffix}</span>}
+        {suffix && <span className="text-[13px] text-grey-on-surface">{suffix}</span>}
       </div>
 
       <Button
@@ -183,7 +183,7 @@ function Button({
       onPointerUp={onRelease}
       onPointerLeave={onRelease}
       onPointerCancel={onRelease}
-      className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink transition-colors hover:bg-surface disabled:text-grey-on-ground/35 disabled:hover:bg-transparent"
+      className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink transition-colors hover:bg-ink/[0.07] disabled:text-grey-on-surface/40 disabled:hover:bg-transparent"
     >
       {children}
     </button>

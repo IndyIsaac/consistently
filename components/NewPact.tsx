@@ -143,7 +143,7 @@ export function NewPact() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={EXAMPLE}
-            className="mt-3 w-full resize-none rounded-xl border border-hairline bg-ground px-4 py-3 text-[15px] leading-relaxed text-ink outline-none transition-colors placeholder:text-grey-on-ground focus:border-ink"
+            className="mt-3 w-full resize-none rounded-[20px] bg-surface px-4 py-3 text-[15px] leading-relaxed text-ink transition-colors placeholder:text-grey-on-surface"
           />
 
           <Failure message={error} />
