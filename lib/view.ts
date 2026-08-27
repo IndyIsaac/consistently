@@ -116,12 +116,17 @@ export type AppSession = {
 };
 
 /**
- * "Nat Suwannarat" -> "NS". No column holds this, and three components draw it,
- * so it is derived in one place.
+ * "Nat Suwannarat" -> "NS", "Indy" -> "IN". No column holds this, and three
+ * components draw it, so it is derived in one place.
+ *
+ * A one-word name takes two letters from that word rather than one. Avatars sit
+ * in a row -- a lone "I" beside "NS" and "PC" reads as a rendering fault rather
+ * than as a shorter name.
  */
 export function initialsOf(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return parts
     .slice(0, 2)
     .map((word) => word[0])

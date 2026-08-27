@@ -107,3 +107,55 @@ describe("readSettlement", () => {
     expect(r.forfeitedBy("m_dave")).toBe(0);
   });
 });
+
+describe("settlePact period guard", () => {
+  it("refuses to judge a period that is still running", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { settlePact, SettlementError } = await import("@/lib/settlement");
+    const { periodDayKeys } = await import("@/lib/pact-view");
+    const { createVault } = await import("@/lib/vault");
+
+    const stamp = Date.now();
+    const user = await prisma.user.create({
+      data: { privyId: `guard-${stamp}`, walletAddress: `guard-w-${stamp}`, displayName: "G" },
+    });
+    const vault = createVault();
+    const rule = {
+      cadence: 5,
+      period: "week" as const,
+      sessionType: "checkin_checkout" as const,
+      minDurationMins: 30,
+      windowStart: "05:00",
+      windowEnd: "22:00",
+      proof: "photo" as const,
+      failsWhenMissedExceeds: 0,
+      split: "equal" as const,
+      exemption: "majority" as const,
+      durationPeriods: 12,
+    };
+
+    const pact = await prisma.pact.create({
+      data: {
+        name: "Guard", inviteToken: `g-${stamp}`, createdById: user.id, ruleConfig: rule,
+        stakeAmount: "1000", stakeCurrency: "THB", fxRateToUsd: "0.0285",
+        fxFetchedAt: new Date(), stakeUsdc: 28_500_000n,
+        vaultAddress: vault.publicKey, vaultSecretEnc: vault.secretEnc, status: "active",
+        memberships: { create: { userId: user.id, status: "staked" } },
+      },
+    });
+
+    const now = new Date();
+    const thisPeriod = periodDayKeys(rule, "Asia/Bangkok", now)[0];
+
+    // Nobody has met a five-a-week cadence mid-week. Settling here would mark
+    // the whole crew failed and burn the mutex that stops a correct re-run.
+    await expect(settlePact(pact.id, thisPeriod, now)).rejects.toThrow(SettlementError);
+    expect(await prisma.settlement.count({ where: { pactId: pact.id } })).toBe(0);
+
+    const after = await prisma.membership.findFirstOrThrow({ where: { pactId: pact.id } });
+    expect(after.status).toBe("staked");
+
+    await prisma.pact.delete({ where: { id: pact.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+});

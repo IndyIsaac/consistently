@@ -14,7 +14,7 @@ import { prisma } from "@/lib/db";
 import { buildOrder, USDC_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
 import { periodDayKeys } from "@/lib/pact-view";
-import { hasFailed, RuleConfigSchema } from "@/lib/rules";
+import { dayKeyFor, hasFailed, RuleConfigSchema } from "@/lib/rules";
 import {
   deserializeTx,
   DRY_RUN,
@@ -203,6 +203,7 @@ export async function settlePact(
   pactId: string,
   periodKey: string,
   now: Date = new Date(),
+  options: { force?: boolean } = {},
 ): Promise<{ payouts: SettlementRecord["payouts"]; potUsdc: string }> {
   const pact = await prisma.pact.findUniqueOrThrow({
     where: { id: pactId },
@@ -216,6 +217,28 @@ export async function settlePact(
 
   const rule = RuleConfigSchema.parse(pact.ruleConfig);
   const inPeriod = new Set(periodDayKeys(rule, pact.timezone, now));
+
+  /**
+   * A period that is still running cannot be judged.
+   *
+   * Nobody has met a five-a-week cadence on a Wednesday, so settling mid-week
+   * marks the entire crew failed and moves every stake to nobody -- which is
+   * both wrong and unrecoverable, since the settlement row is the mutex that
+   * stops it being run again properly.
+   *
+   * `force` exists for the demo and for tests. It is not reachable from the
+   * channel: `/settle` on an unfinished week gets the sentence below.
+   */
+  const thisPeriod = periodDayKeys(rule, pact.timezone, now);
+  const stillRunning = thisPeriod.includes(periodKey) || periodKey >= thisPeriod[0];
+  if (stillRunning && !options.force) {
+    const left = thisPeriod.filter((day) => day > dayKeyFor(now, pact.timezone)).length;
+    throw new SettlementError(
+      left > 0
+        ? `The ${rule.period} is not over. ${left} ${left === 1 ? "day" : "days"} left.`
+        : `The ${rule.period} is not over yet.`,
+    );
+  }
 
   const failed: typeof pact.memberships = [];
   const winners: typeof pact.memberships = [];
@@ -346,7 +369,9 @@ export async function settlePact(
       body:
         failed.length === 0
           ? "Everyone made it. Nobody paid a thing."
-          : `${names(failed)} missed. Their stakes went to ${names(winners)}. Settled automatically.`,
+          : winners.length === 0
+            ? `Nobody made it. Every stake stays in the vault until someone does.`
+            : `${names(failed)} missed. Their stakes went to ${names(winners)}. Settled automatically.`,
     },
   });
 
