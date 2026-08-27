@@ -34,8 +34,25 @@ import { toSolanaWalletConnectors } from "@privy-io/react-auth/solana";
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
 
+/**
+ * Privy's own rule, mirrored: it throws during render on an app id that is not
+ * exactly 25 characters -- not a warning, an exception, which takes the landing
+ * page to a 500 rather than degrading. A half-pasted string is exactly the kind
+ * of thing that happens the night before a demo, and losing the whole front
+ * door to one is not a trade worth making.
+ *
+ * A React error boundary does not help here: the throw happens during the
+ * server pass, and the request is already a 500 by the time a boundary would
+ * render. Checking first is the only thing that works.
+ *
+ * A wrong-but-well-formed id still gets through to Privy, which is the right
+ * place for it to fail -- and `npm run preflight` asks Privy directly whether
+ * the id resolves.
+ */
+const PRIVY_APP_ID_LENGTH = 25;
+
 export function Providers({ children }: { children: React.ReactNode }) {
-  if (!PRIVY_APP_ID) return <>{children}</>;
+  if (PRIVY_APP_ID.length !== PRIVY_APP_ID_LENGTH) return <>{children}</>;
 
   return (
     <PrivyProvider

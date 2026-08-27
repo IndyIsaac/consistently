@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useLoginWithEmail } from "@privy-io/react-auth";
-import { Lock, TriangleAlert } from "lucide-react";
+import { useLogin, useLoginWithEmail } from "@privy-io/react-auth";
+import { TriangleAlert, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
@@ -98,7 +98,16 @@ type Step = "rest" | "email" | "code" | "arriving";
 
 const EMPTY_CODE = Array<string>(CODE_LENGTH).fill("");
 
-function Door({ auth, privyConfigured }: { auth: Auth; privyConfigured: boolean }) {
+function Door({
+  auth,
+  privyConfigured,
+  onConnectWallet,
+}: {
+  auth: Auth;
+  privyConfigured: boolean;
+  /** Absent when there is no Privy app, and the button below says so. */
+  onConnectWallet?: () => void;
+}) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
 
@@ -258,7 +267,7 @@ function Door({ auth, privyConfigured }: { auth: Auth; privyConfigured: boolean 
 
                 <SubmitButton busy={busy}>{busy ? "SENDING" : "CONTINUE"}</SubmitButton>
                 <OrRule />
-                <GoogleButton />
+                <WalletButton onConnect={onConnectWallet} />
               </motion.form>
             )}
 
@@ -354,8 +363,22 @@ function Door({ auth, privyConfigured }: { auth: Auth; privyConfigured: boolean 
  */
 function PrivyDoor() {
   const privy = useLoginWithEmail();
+  const { login } = useLogin();
   const auth = useMemo(() => privyAuth(privy), [privy]);
-  return <Door auth={auth} privyConfigured />;
+
+  /**
+   * The wallet path, scoped to wallets only -- the door already has its own
+   * email field, and a modal offering it again would be two ways to do one
+   * thing. Privy handles detection, connection and the signature; what the
+   * member sees is Phantom's own prompt, which is the one they recognise.
+   */
+  return (
+    <Door
+      auth={auth}
+      privyConfigured
+      onConnectWallet={() => login({ loginMethods: ["wallet"] })}
+    />
+  );
 }
 
 /**
@@ -418,21 +441,46 @@ function OrRule() {
 }
 
 /**
- * Google is not wired and will not be. It is rendered visibly unavailable rather
- * than live: a dead button someone presses on stage is worse than no button.
+ * The second door.
+ *
+ * Most people this is built for have never held a token, and the email field
+ * above is for them -- a wallet gets made during sign-in and they are never
+ * asked what one is. But a crew that already has Phantom should not be made to
+ * go the long way round and then fund a second, empty wallet.
+ *
+ * This slot used to hold a Google button that was deliberately dead, on the
+ * grounds that a dead button someone presses on stage is worse than no button.
+ * The reasoning stands and the conclusion flipped: there is something behind
+ * it now. Where there is not -- no Privy app, the zero-env-var path -- it says
+ * so rather than failing under a thumb.
  */
-function GoogleButton() {
+function WalletButton({ onConnect }: { onConnect?: () => void }) {
+  if (!onConnect) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        title="Connecting a wallet needs a Privy app id."
+        className="flex w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-full border border-dashed border-door-ink/20 py-3.5 text-door-ink/55"
+      >
+        <Wallet className="size-3.5" aria-hidden="true" />
+        <span className="text-[13px] tracking-[0.04em]">Wallet</span>
+        <span className="text-[10px] tracking-[0.2em] text-door-ink/40 uppercase">
+          not configured
+        </span>
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
-      disabled
-      aria-disabled="true"
-      title="Google sign-in is not wired and will not be."
-      className="flex w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-full border border-dashed border-door-ink/20 py-3.5 text-door-ink/55"
+      onClick={onConnect}
+      className="flex w-full items-center justify-center gap-2.5 rounded-full border border-door-ink/25 py-3.5 text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door"
     >
-      <Lock className="size-3.5" aria-hidden="true" />
-      <span className="text-[13px] tracking-[0.04em]">Google</span>
-      <span className="text-[10px] tracking-[0.2em] text-door-ink/40 uppercase">not wired</span>
+      <Wallet className="size-3.5" aria-hidden="true" />
+      <span className="text-[13px] tracking-[0.04em]">Connect a wallet</span>
     </button>
   );
 }

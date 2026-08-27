@@ -1,6 +1,5 @@
 import "dotenv/config";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { Connection, Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 
 /* ---------------------------------------------------------------------------
