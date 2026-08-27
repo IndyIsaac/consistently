@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
-import { TriangleAlert } from "lucide-react";
+import { FlaskConical, TriangleAlert } from "lucide-react";
 
 /* ---------------------------------------------------------------------------
  * Putting the money in, from the member's side.
@@ -69,6 +69,7 @@ export function StakeSheet({
   const [priced, setPriced] = useState<{ mint: string; quote: Quote } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rehearsed, setRehearsed] = useState(false);
 
   const post = useCallback(
     async (body: unknown) => {
@@ -152,6 +153,13 @@ export function StakeSheet({
         setError(done.body.error ?? "That did not go through.");
         return;
       }
+      // A rehearsal must never be mistaken for money moving. The server says
+      // which it was; the sheet says so before it refreshes.
+      if (done.body.dryRun) {
+        setRehearsed(true);
+        setTimeout(() => router.refresh(), 2_500);
+        return;
+      }
       router.refresh();
     } catch {
       setError("That did not go through.");
@@ -203,6 +211,20 @@ export function StakeSheet({
           </>
         )}
       </p>
+
+      {rehearsed && (
+        <p
+          role="status"
+          className="mt-3 flex items-start gap-2 rounded-2xl bg-surface px-3.5 py-2.5 text-[13px] leading-relaxed text-ink"
+        >
+          <FlaskConical className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            <b className="font-semibold">Rehearsal.</b> Both signatures checked out against the
+            live network and the route would have gone through. Nothing moved &mdash; unset{" "}
+            <code className="text-[12px]">STAKE_DRY_RUN</code> to stake for real.
+          </span>
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="mt-3 flex items-start gap-2 text-[13px] leading-relaxed text-ink">

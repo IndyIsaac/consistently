@@ -10,11 +10,15 @@ import { prisma } from "@/lib/db";
 import { buildOrder, getQuote, USDC_MINT, WSOL_MINT } from "@/lib/dflow";
 import {
   deserializeTx,
+  DRY_RUN,
+  DRY_RUN_SIGNATURE_PREFIX,
   getConnection,
   loadSponsor,
   serializeTx,
   signWith,
+  simulateOnly,
   submitAndConfirm,
+  type DryRun,
 } from "@/lib/solana";
 
 /* ---------------------------------------------------------------------------
@@ -386,7 +390,7 @@ export async function finaliseStake(params: {
   signedTxB64: string;
   lastValidBlockHeight: number;
   kind: "swap" | "transfer";
-}): Promise<{ signature: string }> {
+}): Promise<{ signature: string; dryRun?: DryRun }> {
   const pact = await prisma.pact.findUniqueOrThrow({ where: { id: params.pactId } });
   const sponsor = loadSponsor();
 
@@ -398,7 +402,30 @@ export async function finaliseStake(params: {
   });
 
   signWith(tx, [sponsor]);
-  const signature = await submitAndConfirm(tx, params.lastValidBlockHeight);
+
+  /**
+   * Rehearsal. Everything above has happened for real -- the route was priced,
+   * the member signed, the sponsor co-signed, the guard passed -- and the
+   * simulator has just checked both signatures. Only the broadcast is skipped.
+   *
+   * The membership is still written, so the rest of the demo (the pact going
+   * live, a check-in, a settlement) can be walked through end to end. The
+   * signature recorded is deliberately not a signature.
+   */
+  let dryRun: DryRun | undefined;
+  let signature: string;
+
+  if (DRY_RUN) {
+    dryRun = await simulateOnly(tx);
+    if (!dryRun.ok) {
+      throw new StakeGuardError(
+        `Dry run: the network refused this transaction. ${dryRun.error ?? ""}`.trim(),
+      );
+    }
+    signature = `${DRY_RUN_SIGNATURE_PREFIX}${Date.now()}`;
+  } else {
+    signature = await submitAndConfirm(tx, params.lastValidBlockHeight);
+  }
 
   const user = await prisma.user.findUniqueOrThrow({
     where: { walletAddress: params.userWallet },
@@ -432,7 +459,7 @@ export async function finaliseStake(params: {
     });
   }
 
-  return { signature };
+  return { signature, dryRun };
 }
 
 /**

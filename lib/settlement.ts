@@ -17,9 +17,12 @@ import { periodDayKeys } from "@/lib/pact-view";
 import { hasFailed, RuleConfigSchema } from "@/lib/rules";
 import {
   deserializeTx,
+  DRY_RUN,
+  DRY_RUN_SIGNATURE_PREFIX,
   getConnection,
   loadSponsor,
   signWith,
+  simulateOnly,
   submitAndConfirm,
 } from "@/lib/solana";
 import { loadVault } from "@/lib/vault";
@@ -154,6 +157,22 @@ async function vaultUsdcBalance(vaultAddress: string): Promise<bigint> {
 }
 
 export class SettlementError extends Error {}
+
+/**
+ * Broadcast, or rehearse. See the note on `simulateOnly` in lib/solana.ts --
+ * under `STAKE_DRY_RUN=1` the vault and sponsor really sign, the simulator
+ * really verifies both signatures against live state, and only the broadcast
+ * is skipped. Both payout paths go through here so they cannot diverge.
+ */
+async function send(tx: VersionedTransaction, lastValidBlockHeight: number): Promise<string> {
+  if (!DRY_RUN) return submitAndConfirm(tx, lastValidBlockHeight);
+
+  const result = await simulateOnly(tx);
+  if (!result.ok) {
+    throw new SettlementError(`Dry run: the network refused a payout. ${result.error ?? ""}`.trim());
+  }
+  return `${DRY_RUN_SIGNATURE_PREFIX}${Date.now()}`;
+}
 
 /**
  * Settles one period.
@@ -292,7 +311,7 @@ export async function settlePact(
       // Both keys are here, so there is no client round trip and no race with
       // the order's sixty-second blockhash.
       signWith(tx, [vault, sponsor]);
-      signature = await submitAndConfirm(tx, order.lastValidBlockHeight!);
+      signature = await send(tx, order.lastValidBlockHeight!);
     }
 
     payout.signature = signature;
@@ -366,5 +385,5 @@ async function transferUsdc(params: {
 
   const tx = new VersionedTransaction(message);
   signWith(tx, [params.vault, params.sponsor]);
-  return submitAndConfirm(tx, lastValidBlockHeight);
+  return send(tx, lastValidBlockHeight);
 }

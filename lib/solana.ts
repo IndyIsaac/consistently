@@ -101,3 +101,56 @@ export async function submitAndConfirm(
   }
   return signature;
 }
+
+/* ---------------------------------------------------------------------------
+ * Rehearsal.
+ *
+ * `STAKE_DRY_RUN=1` runs the entire money path except the last step: the order
+ * is priced, the transaction built, the member signs it, the sponsor co-signs,
+ * the guard checks it -- and then it is simulated against live mainnet state
+ * rather than broadcast.
+ *
+ * `sigVerify: true` is the point. The simulator checks every signature before
+ * it runs anything, which makes this the cheapest possible test of the one
+ * thing that cannot be verified by reading code: whether a wallet's signing
+ * round-trip leaves the sponsor's signature slot intact for the server to
+ * fill. If that is broken, this fails here, for nothing, at a desk.
+ *
+ * What it does not prove: that the member has the funds. A simulation on an
+ * empty wallet fails on balance, which is a pass for every question this mode
+ * is asking.
+ * ------------------------------------------------------------------------- */
+
+/** A signature that cannot be mistaken for one. Never appears with money behind it. */
+export const DRY_RUN_SIGNATURE_PREFIX = "dry-run:";
+
+export const DRY_RUN = process.env.STAKE_DRY_RUN === "1";
+
+export type DryRun = {
+  simulated: true;
+  /** False when the simulator refused it -- signatures, or the instructions themselves. */
+  ok: boolean;
+  /** Present when it failed. Balance errors here are expected on an unfunded wallet. */
+  error: string | null;
+  unitsConsumed: number | null;
+  logs: string[];
+};
+
+export async function simulateOnly(tx: VersionedTransaction): Promise<DryRun> {
+  const { value } = await getConnection().simulateTransaction(tx, {
+    // Verifies every signature before running a single instruction. Without
+    // this the simulation would happily run an unsigned transaction and tell
+    // us nothing about the half we came to check.
+    sigVerify: true,
+    replaceRecentBlockhash: false,
+    commitment: "confirmed",
+  });
+
+  return {
+    simulated: true,
+    ok: value.err === null,
+    error: value.err === null ? null : JSON.stringify(value.err),
+    unitsConsumed: value.unitsConsumed ?? null,
+    logs: value.logs ?? [],
+  };
+}
