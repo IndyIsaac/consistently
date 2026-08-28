@@ -89,8 +89,21 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
     bootstrapped.current = true;
 
     (async () => {
+      /**
+       * A name to be called by, from whatever they signed in with.
+       *
+       * Email gives a local part. A wallet gives nothing -- Phantom knows no
+       * name -- so it takes the shortened address, which is at least theirs
+       * and is what every other Solana product would show them. "Member" was
+       * the old fallback and it is worse than either: a crew of four where
+       * one is called Member reads as a bug, and Settings lets them change it
+       * to something they picked.
+       */
       const email = user?.email?.address ?? "";
-      const displayName = email ? email.split("@")[0].slice(0, 40) : "Member";
+      const address = wallet.address;
+      const displayName = email
+        ? email.split("@")[0].slice(0, 40)
+        : `${address.slice(0, 4)}…${address.slice(-4)}`;
 
       const res = await authed("/api/me", {
         method: "POST",
@@ -246,7 +259,13 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
                 type="button"
                 onClick={async () => {
                   const res = await authed("/api/wallet/balance?rehearse=1");
-                  if (res.ok) setFunded(true);
+                  const body = await res.json().catch(() => ({}));
+                  // `res.ok` is not the question. The route answers 200 for an
+                  // unfunded wallet too, so trusting the status let the screen
+                  // navigate on a "no" -- and the gate, reading the database,
+                  // sent them straight back here. Ask what it actually said.
+                  if (body.funded) setFunded(true);
+                  else setError(body.error ?? "Could not skip the gate. Is STAKE_DRY_RUN set?");
                 }}
                 className="mt-4 w-full rounded-full border border-hairline py-3 text-[12px] tracking-[0.24em] text-grey-on-ground uppercase transition-colors hover:border-ink/40 hover:text-ink"
               >
