@@ -3,6 +3,8 @@ import { ArrowLeft } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AppearanceSetting } from "@/components/AppearanceSetting";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
+import { SignOut } from "@/components/SignOut";
+import { LIVE } from "@/lib/session";
 import { getSession } from "@/lib/session";
 
 export const metadata = { title: "Settings · Consistently" };
@@ -53,13 +55,28 @@ export default async function SettingsPage() {
         <AppearanceSetting />
       </Panel>
 
-      <Panel className="mt-4 max-w-[32rem] border-dashed">
+      <Panel className="mt-4 max-w-[32rem]">
         <FieldLabel>This session</FieldLabel>
-        <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-ground">
-          No Privy app id is set, so nobody is really signed in. Every screen is reading{" "}
-          <span className="font-mono text-[13px] text-ink">lib/mock-session.ts</span>. Delete
-          that file to delete the mock.
-        </p>
+        {LIVE ? (
+          <>
+            <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-ground">
+              Signed in as {user.displayName}. Your wallet is{" "}
+              <span className="font-mono text-[13px] break-all text-ink">
+                {user.walletAddress}
+              </span>
+              .
+            </p>
+            <div className="mt-5">
+              <SignOut />
+            </div>
+          </>
+        ) : (
+          <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-ground">
+            No Privy app id is set, so nobody is really signed in. Every screen is reading{" "}
+            <span className="font-mono text-[13px] text-ink">lib/mock-session.ts</span>. Delete
+            that file to delete the mock.
+          </p>
+        )}
       </Panel>
     </div>
   );
