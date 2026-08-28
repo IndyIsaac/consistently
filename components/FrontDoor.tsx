@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useLoginWithEmail, useLoginWithSiws } from "@privy-io/react-auth";
+import { useLoginWithEmail, useLoginWithSiws, usePrivy } from "@privy-io/react-auth";
 import { useStandardWallets } from "@privy-io/react-auth/solana";
-import bs58 from "bs58";
+
 import { TriangleAlert, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +58,11 @@ type Auth = {
 
 function pause(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** A signature is 64 bytes, so a plain spread is safe here. */
+function toBase64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
 }
 
 /**
@@ -115,11 +120,14 @@ function Door({
   auth,
   privyConfigured,
   wallets,
+  alreadyIn = false,
 }: {
   auth: Auth;
   privyConfigured: boolean;
   /** Null when there is no Privy app. Empty when nothing is installed. */
   wallets: WalletOption[] | null;
+  /** Signed in already -- a returning tab, or a sign-in that did not navigate. */
+  alreadyIn?: boolean;
 }) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
@@ -136,6 +144,29 @@ function Door({
   useEffect(() => {
     router.prefetch("/dashboard");
   }, [router]);
+
+  /**
+   * Crossing the threshold. Both doors end here -- the email code and the
+   * wallet signature are different proofs of the same thing, and what follows
+   * them is identical.
+   */
+  const arrive = useCallback(() => {
+    setStep("arriving");
+    setTimeout(() => router.push("/dashboard"), reduceMotion ? 0 : 620);
+  }, [reduceMotion, router]);
+
+  /**
+   * A door is for people outside. Somebody already signed in and looking at it
+   * is in a state that should not exist -- a tab left open, or a sign-in that
+   * failed to navigate -- and asking them to sign in again earns them "User
+   * already authenticated" from Privy, which explains nothing to anybody.
+   */
+  useEffect(() => {
+    // `replace`, and no threshold animation: this is not an arrival, it is a
+    // page they should never have been looking at. The animation is for
+    // crossing a threshold, and they crossed it already.
+    if (alreadyIn) router.replace("/dashboard");
+  }, [alreadyIn, router]);
 
   const enter = useCallback(
     async (code: string) => {
@@ -154,10 +185,9 @@ function Door({
         return;
       }
 
-      setStep("arriving");
-      setTimeout(() => router.push("/dashboard"), reduceMotion ? 0 : 620);
+      arrive();
     },
-    [auth, reduceMotion, router],
+    [auth, arrive],
   );
 
   async function submitEmail(event: React.FormEvent) {
@@ -280,7 +310,7 @@ function Door({
 
                 <SubmitButton busy={busy}>{busy ? "SENDING" : "CONTINUE"}</SubmitButton>
                 <OrRule />
-                <WalletOptions wallets={wallets} onFailure={setError} />
+                <WalletOptions wallets={wallets} onFailure={setError} onSuccess={arrive} />
               </motion.form>
             )}
 
@@ -375,6 +405,7 @@ function Door({
  * it, and a fresh object every render would rebuild the callback mid-typing.
  */
 function PrivyDoor() {
+  const { ready: privyReady, authenticated } = usePrivy();
   const privy = useLoginWithEmail();
   const auth = useMemo(() => privyAuth(privy), [privy]);
 
@@ -435,25 +466,48 @@ function PrivyDoor() {
             });
 
             await loginWithSiws({
-              signature: bs58.encode(signed.signature),
+              // base64, NOT base58. Privy's own SIWS flow does
+              // `base64.encode(signature)` -- the address beside it is base58,
+              // which is what makes this worth a comment: the two encodings sit
+              // one line apart in their code and only one of them is the one a
+              // Solana signature is usually written in. Sending base58 is
+              // accepted by the wallet, signed happily, and rejected by
+              // /siws/authenticate as "Invalid SIWS message and/or nonce".
+              signature: toBase64(signed.signature),
               message,
               walletClientType: wallet.name.toLowerCase().replace(/\s+/g, "_"),
               connectorType: "injected",
             });
             return null;
           } catch (e) {
+            const reason = e instanceof Error ? e.message : String(e);
+
             // Closing the wallet is the commonest path through here and is not
             // worth a sentence about signatures.
-            const reason = e instanceof Error ? e.message : "";
-            return /reject|denied|cancel|close/i.test(reason)
-              ? `${wallet.name} was closed before signing.`
+            if (/reject|denied|cancel|close/i.test(reason)) {
+              return `${wallet.name} was closed before signing.`;
+            }
+
+            // Anything else is a fault worth naming. Swallowing it into "could
+            // not sign in" costs a debugging round trip every time, and the
+            // person who sees it is the person who can act on it.
+            console.error(`[sign-in] ${wallet.name} failed`, e);
+            return reason
+              ? `${wallet.name}: ${reason.slice(0, 160)}`
               : `Could not sign in with ${wallet.name}.`;
           }
         },
       }));
   }, [ready, detected, generateSiwsMessage, loginWithSiws]);
 
-  return <Door auth={auth} privyConfigured wallets={wallets} />;
+  return (
+    <Door
+      auth={auth}
+      privyConfigured
+      wallets={wallets}
+      alreadyIn={privyReady && authenticated}
+    />
+  );
 }
 
 export function FrontDoor() {
@@ -532,9 +586,11 @@ function OrRule() {
 function WalletOptions({
   wallets,
   onFailure,
+  onSuccess,
 }: {
   wallets: WalletOption[] | null;
   onFailure: (message: string) => void;
+  onSuccess: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -565,9 +621,13 @@ function WalletOptions({
             setBusy(wallet.name);
             const failure = await wallet.connect();
             setBusy(null);
+            // Signing in does not navigate on its own. Privy flips its auth
+            // state and re-renders, and the door sits there looking like
+            // nothing happened -- which is exactly what it did until this
+            // line existed. The email path has always called this; the wallet
+            // path has to as well.
             if (failure) onFailure(failure);
-            // Success needs no branch: Privy's state change re-renders the tree
-            // and app/(app)/layout.tsx decides where they land.
+            else onSuccess();
           }}
           className="flex w-full items-center justify-center gap-2.5 rounded-full border border-door-ink/25 py-3.5 text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-door-ink/25 disabled:hover:bg-transparent disabled:hover:text-door-ink"
         >
