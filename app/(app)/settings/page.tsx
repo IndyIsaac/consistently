@@ -3,7 +3,8 @@ import { ArrowLeft } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AppearanceSetting } from "@/components/AppearanceSetting";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
-import { SignOut } from "@/components/SignOut";
+import { WalletPanel } from "@/components/WalletPanel";
+import { readHoldings } from "@/lib/holdings";
 import { LIVE } from "@/lib/session";
 import { getSession } from "@/lib/session";
 
@@ -11,7 +12,9 @@ export const metadata = { title: "Settings · Consistently" };
 
 /** PLACEHOLDER. Profile name, profile photo and linked socials are a later task. */
 export default async function SettingsPage() {
-  const { user } = await getSession();
+  const { user, pacts, currency } = await getSession();
+  // One RPC call, on a page that was already awaiting the database.
+  const holdings = LIVE ? await readHoldings(user.walletAddress) : null;
   const wallet = `${user.walletAddress.slice(0, 4)}…${user.walletAddress.slice(-4)}`;
 
   return (
@@ -56,26 +59,28 @@ export default async function SettingsPage() {
       </Panel>
 
       <Panel className="mt-4 max-w-[32rem]">
-        <FieldLabel>This session</FieldLabel>
         {LIVE ? (
-          <>
-            <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-ground">
-              Signed in as {user.displayName}. Your wallet is{" "}
-              <span className="font-mono text-[13px] break-all text-ink">
-                {user.walletAddress}
-              </span>
-              .
-            </p>
-            <div className="mt-5">
-              <SignOut />
-            </div>
-          </>
+          <WalletPanel
+            address={user.walletAddress}
+            currency={currency}
+            holdings={holdings}
+            allocations={pacts.map((p) => ({
+              pactId: p.id,
+              name: p.name,
+              stakeAmount: p.stakeAmount,
+              stakeCurrency: p.stakeCurrency,
+              status: p.viewerStatus,
+            }))}
+          />
         ) : (
-          <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-ground">
-            No Privy app id is set, so nobody is really signed in. Every screen is reading{" "}
-            <span className="font-mono text-[13px] text-ink">lib/mock-session.ts</span>. Delete
-            that file to delete the mock.
-          </p>
+          <>
+            <FieldLabel>This session</FieldLabel>
+            <p className="mt-2 max-w-[44ch] text-[14px] leading-relaxed text-grey-on-ground">
+              No Privy app id is set, so nobody is really signed in. Every screen is reading{" "}
+              <span className="font-mono text-[13px] text-ink">lib/mock-session.ts</span>. Delete
+              that file to delete the mock.
+            </p>
+          </>
         )}
       </Panel>
     </div>
