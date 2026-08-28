@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { requireUser, UnauthorizedError } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getConnection } from "@/lib/solana";
+import { DRY_RUN, getConnection } from "@/lib/solana";
 
 /* ---------------------------------------------------------------------------
  * GET /api/wallet/balance -- the only thing that opens the gate.
@@ -31,7 +31,25 @@ export async function GET(req: NextRequest) {
   }
 
   if (user.walletFundedAt) {
-    return NextResponse.json({ funded: true, lamports: null, tokens: null });
+    return NextResponse.json({ funded: true, lamports: null, tokens: null, rehearsal: DRY_RUN });
+  }
+
+  /**
+   * A gate that blocks a rehearsal contradicts what STAKE_DRY_RUN is for: the
+   * point of that flag is to walk the whole product without money, and the
+   * first wall is a screen demanding some.
+   *
+   * So under the flag the screen still appears -- it is a demo beat and worth
+   * seeing -- but offers a way through, clearly labelled. `?rehearse=1` is what
+   * that button calls; a real deployment never sets the flag, so the parameter
+   * does nothing there.
+   */
+  if (DRY_RUN && req.nextUrl.searchParams.get("rehearse") === "1") {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { walletFundedAt: new Date() },
+    });
+    return NextResponse.json({ funded: true, lamports: 0, tokens: 0, rehearsal: true });
   }
 
   let owner: PublicKey;
@@ -72,5 +90,5 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ funded, lamports, tokens });
+  return NextResponse.json({ funded, lamports, tokens, rehearsal: DRY_RUN });
 }

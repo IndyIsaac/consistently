@@ -40,6 +40,8 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
   const [funded, setFunded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // The server says whether this deployment is rehearsing; no second env var.
+  const [rehearsal, setRehearsal] = useState(false);
 
   const bootstrapped = useRef(false);
   // Stamped on the first poll rather than at render: reading the clock during
@@ -123,6 +125,7 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
         if (cancelled) return;
         if (res.ok) {
           const body = await res.json();
+          if (body.rehearsal) setRehearsal(true);
           if (body.funded) {
             setFunded(true);
             return;
@@ -234,6 +237,22 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
               Watching for it. Any token will do, and you will not need SOL for
               fees — that part is covered.
             </p>
+
+            {/* Only under STAKE_DRY_RUN, and it says so. The screen still
+                appears because it is a demo beat worth seeing; what changes is
+                that a rehearsal is not stopped by a wall asking for money. */}
+            {rehearsal && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const res = await authed("/api/wallet/balance?rehearse=1");
+                  if (res.ok) setFunded(true);
+                }}
+                className="mt-4 w-full rounded-full border border-hairline py-3 text-[12px] tracking-[0.24em] text-grey-on-ground uppercase transition-colors hover:border-ink/40 hover:text-ink"
+              >
+                Skip — rehearsing
+              </button>
+            )}
           </>
         )}
       </Panel>
