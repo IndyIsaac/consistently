@@ -2,19 +2,26 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
+import { ProfileForm } from "@/components/ProfileForm";
 import { WalletPanel } from "@/components/WalletPanel";
+import { currentUser } from "@/lib/auth";
 import { readHoldings } from "@/lib/holdings";
 import { LIVE } from "@/lib/session";
 import { getSession } from "@/lib/session";
 
 export const metadata = { title: "Settings · Consistently" };
 
-/** PLACEHOLDER. Profile name, profile photo and linked socials are a later task. */
 export default async function SettingsPage() {
   const { user, pacts, currency } = await getSession();
   // One RPC call, on a page that was already awaiting the database.
   const holdings = LIVE ? await readHoldings(user.walletAddress) : null;
   const wallet = `${user.walletAddress.slice(0, 4)}…${user.walletAddress.slice(-4)}`;
+
+  // AppSession's `user` carries only what every screen needs (id, wallet,
+  // name, initials) -- bio, avatarUrl and socials are read straight off the
+  // row here instead, the same way holdings above is a second call the mock
+  // branch never has to make.
+  const viewer = LIVE ? await currentUser() : null;
 
   return (
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-8 sm:px-8 sm:pt-10">
@@ -48,8 +55,14 @@ export default async function SettingsPage() {
         <DashedRule className="mt-6" />
 
         <div className="mt-6">
-          <FieldLabel>Profile photo, linked socials</FieldLabel>
-          <p className="mt-2 text-[14px] text-grey-on-ground">Not built yet.</p>
+          <ProfileForm
+            initial={{
+              displayName: user.displayName,
+              bio: viewer?.bio ?? null,
+              avatarUrl: viewer?.avatarUrl ?? null,
+              socials: (viewer?.socials as unknown as Record<string, string> | null) ?? null,
+            }}
+          />
         </div>
       </Panel>
 

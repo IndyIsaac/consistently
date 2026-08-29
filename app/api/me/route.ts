@@ -58,3 +58,43 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * PATCH /api/me -- name, face, one sentence, and where else you are.
+ *
+ * Every field here is optional and independently overwritable, which is why
+ * the client only sends what changed: an absent key leaves that column alone
+ * instead of clearing it. walletAddress is not in the schema below at all, for
+ * the same reason it is absent from the POST's update branch above -- it is
+ * write-on-create only.
+ * ------------------------------------------------------------------------- */
+
+const PatchSchema = z.object({
+  displayName: z.string().min(1).max(40).optional(),
+  bio: z.string().max(280).optional(),
+  avatarUrl: z.string().url().optional(),
+  socials: z.record(z.string(), z.string().max(200)).optional(),
+});
+
+export async function PATCH(req: NextRequest) {
+  if (!PRIVY_CONFIGURED) {
+    return NextResponse.json({ error: "Sign-in is not configured" }, { status: 503 });
+  }
+  const privyId = await privyIdFromRequest(req);
+  if (!privyId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  const parsed = PatchSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Nothing valid to update." }, { status: 400 });
+  }
+
+  // walletAddress is deliberately absent: it is write-on-create only, for the
+  // reason given above the POST handler.
+  const user = await prisma.user.update({ where: { privyId }, data: parsed.data });
+  return NextResponse.json({
+    displayName: user.displayName,
+    bio: user.bio,
+    avatarUrl: user.avatarUrl,
+    socials: user.socials,
+  });
+}
