@@ -1042,6 +1042,68 @@ Never cut from §7 verification to save time.
 
 ---
 
+## Task 17 (Lane A): The stake guard does not check the amount
+
+**Added 2026-08-29 by Ruling 11.** Not in the original plan. Found by Task 12's adversarial
+pass while writing the escrow document, and verified independently by the controller.
+
+**The bug.** `assertIsOurStakeTx` (`lib/stake.ts:112`) validates a stake transaction
+structurally — two signers, sponsor as fee payer, the vault among the accounts, programs on an
+allowlist — and never checks how much it delivers. `finaliseStake` then signs, submits, and
+writes `status: "staked"` with no comparison against `pact.stakeUsdc` and no vault balance
+read. On the USDC transfer path an authenticated member can hand-build a structurally identical
+`transferChecked` of one atomic unit and be recorded as fully staked.
+
+**Why it costs real money.** `settlePact` pays every winner their principal back —
+`lib/settlement.ts:258`, `const principal = pact.stakeUsdc` — while the pot is the vault's
+*actual* balance. An under-staker who keeps the rule is paid a full stake out of the other
+members' money. If the vault cannot cover every winner's principal, payouts run in sequence
+until it is empty and the rest fail on chain, so the shortfall lands on whoever the loop
+reaches last. That is nobody's decision, which is the part that makes it unacceptable.
+
+This is member-against-crew, not operator-against-crew. It is the inverse of the donation gap
+the existing comment names, and it is not covered by it.
+
+**Files:**
+- Modify: `lib/stake.ts` (`finaliseStake`, and `assertIsOurStakeTx`'s doc comment)
+- Test: `lib/__tests__/stake.test.ts`
+
+- [ ] **Step 1: Choose the check, and say why in a comment.** Two options; the second is
+  recommended. (a) Assert inside the guard that the transaction delivers at least
+  `pact.stakeUsdc` into the vault — hard, because the swap path's output is not statically
+  knowable from the transaction and address-lookup tables make instruction parsing fiddly.
+  (b) Read the vault's USDC balance immediately before and after confirmation and require the
+  rise to be at least `pact.stakeUsdc`. Works identically for the swap and transfer paths and
+  needs no instruction parsing.
+
+- [ ] **Step 2: Write the failing test** covering an under-delivering stake: the membership
+  must NOT be written `staked`, and the caller must get a `StakeGuardError` they can read.
+
+- [ ] **Step 3: Run it and watch it fail.** `npm test -- lib/__tests__/stake.test.ts`
+
+- [ ] **Step 4: Implement.** Under `DRY_RUN` nothing broadcasts, so the balance cannot rise —
+  the check must be skipped there, and the skip must be commented as deliberate.
+
+- [ ] **Step 5: Run and watch it pass.**
+
+- [ ] **Step 6: Correct the guard's doc comment.** It currently names only the over-delivery
+  ("donation") gap. Say what the guard does and does not check now.
+
+- [ ] **Step 7: Report the residual honestly.** A balance-delta check races with a concurrent
+  stake into the same vault: a second member's deposit landing inside the window could mask an
+  under-delivery. Say so in the report; the escrow document will record it rather than pretend
+  it is closed.
+
+- [ ] **Step 8: Verify and commit**
+
+```bash
+npm test && npm run typecheck && npm run lint
+git add lib/stake.ts lib/__tests__/stake.test.ts
+git commit -m "fix: a stake that does not arrive is not a stake"
+```
+
+---
+
 ## Integration
 
 ### Task 16 (Lane F): Merge, review, submit
