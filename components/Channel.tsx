@@ -336,6 +336,12 @@ export function Channel({
   }
 
   const me = view.viewer;
+  // Whichever side of the session is next is the one the reference belongs to:
+  // the check-in shot before a session exists, the check-out shot to close one
+  // already open. Both are optional -- every pact from before this existed has
+  // neither, and the block below renders nothing rather than an empty pill.
+  const referenceUrl = session ? view.rule.checkOutReferenceUrl : view.rule.checkInReferenceUrl;
+  const referenceDescription = view.rule.proofDescription;
 
   return (
     <>
@@ -479,12 +485,43 @@ export function Channel({
                 viewerWallet={viewerWallet}
               />
             ) : (
-              <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
-                <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
-                <div className="min-w-0 flex-1">
-                  <CommandInput onSubmit={run} />
+              <>
+                {/* What a good one looks like, above the control that takes it --
+                    state first, then the instruction, then the camera it instructs.
+                    Short instructions stay a tight pill like the status line above;
+                    a full 280-character one runs out of room to stay short and wraps
+                    across the same width as the composer below it. */}
+                {(referenceUrl || referenceDescription) && (
+                  <div
+                    className={cn(
+                      "mx-auto mb-2 flex w-fit items-center gap-2.5 rounded-full border border-hairline bg-panel py-1.5 shadow-panel",
+                      // Snug against the thumbnail on one side and roomy for text on
+                      // the other -- without a thumbnail there's nothing to sit snug
+                      // against, so it falls back to the status pill's even padding.
+                      referenceUrl ? "pl-1.5 pr-4" : "px-4",
+                    )}
+                  >
+                    {referenceUrl && (
+                      <img
+                        src={referenceUrl}
+                        alt="What the creator said a good one looks like"
+                        className="size-9 shrink-0 rounded-full object-cover"
+                      />
+                    )}
+                    {referenceDescription && (
+                      <p className="text-[13px] leading-snug text-grey-on-ground">
+                        {referenceDescription}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
+                  <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
+                  <div className="min-w-0 flex-1">
+                    <CommandInput onSubmit={run} />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         </div>
