@@ -37,7 +37,7 @@
 | `components/NewPact.tsx` | B | Wires the reference step; sets USDC as default currency |
 | `components/CheckInCamera.tsx` | B | Shows the reference alongside the viewfinder |
 | `components/Channel.tsx` | B | Passes the reference through to the camera (preflight ruling 3) |
-| `lib/bot.ts` | A | Only if the settlement feed body is built here (preflight ruling 4) |
+| `lib/stake.ts` | A | `finaliseStake` gains `payoutMint` and writes it (ruling 7) |
 | `prisma/schema.prisma` | C | The one migration: `User.bio`, `avatarUrl`, `socials`, `email` |
 | `app/api/me/route.ts` | C | PATCH branch for profile edits |
 | `app/(app)/settings/page.tsx` | C | Real settings page replacing the PLACEHOLDER |
@@ -113,22 +113,47 @@ export function isSupportedPayoutMint(mint: string): boolean {
 Run: `npm test -- lib/__tests__/stake.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Extend the finalise step's schema**
+- [ ] **Step 6: Extend the submit step's schema and thread it to the write**
 
-In `app/api/pacts/[id]/stake/route.ts`, add to the `step: "finalise"` object:
+**Corrected 2026-08-29 (Ruling 7).** The plan originally said the membership is
+marked `staked` inside `route.ts`. It is not: the `step === "submit"` branch calls
+`finaliseStake(...)` and returns, and the `prisma.membership.update` that flips the
+status lives in `finaliseStake` in `lib/stake.ts`. The schema member is `submit`,
+not `finalise`. **Lane A owns `lib/stake.ts` for this change** — no other task
+writes it (Task 12 only reads it).
+
+In `app/api/pacts/[id]/stake/route.ts`, add to the `step: "submit"` object:
 
 ```ts
 payoutMint: z.string().min(32).max(44).optional(),
 ```
 
-Then in the finalise handler, where the membership is marked `staked`, include:
+Thread it through the call, then in `lib/stake.ts` widen `finaliseStake`'s params:
 
 ```ts
-// The token this member wants their share paid out in. Validated against the
-// allowlist rather than trusted: settlement builds a real order per winner and
-// an unroutable mint is a payout that never arrives.
-...(parsed.data.payoutMint && isSupportedPayoutMint(parsed.data.payoutMint)
-  ? { payoutMint: parsed.data.payoutMint }
+export async function finaliseStake(params: {
+  pactId: string;
+  userWallet: string;
+  signedTxB64: string;
+  lastValidBlockHeight: number;
+  kind: "swap" | "transfer";
+  /** The token this member wants their share paid out in. Optional: an older
+   *  client sends nothing and the column keeps its USDC default. */
+  payoutMint?: string;
+}): Promise<{ signature: string; dryRun?: DryRun }> {
+```
+
+and add to the existing `data: { ... }` of the membership update that sets
+`status: "staked"`:
+
+```ts
+// Validated against the allowlist rather than trusted: settlement builds a real
+// order per winner, and an unroutable mint is a payout that never arrives.
+// Written in the same update as the status flip on purpose -- a second write
+// that can fail on its own would leave a staked member silently holding the
+// default mint, and nobody finds out until settlement pays the wrong token.
+...(params.payoutMint && isSupportedPayoutMint(params.payoutMint)
+  ? { payoutMint: params.payoutMint }
   : {}),
 ```
 
