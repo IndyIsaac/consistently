@@ -749,9 +749,13 @@ const SOCIALS = [
   { key: "telegram", label: "Telegram" },
 ] as const;
 
-/** Name, face, one sentence, and where else you are. No GitHub stats: the crew
- *  is a gym group and a study pair, and a contributions graph tells them
- *  nothing about whether you turned up. */
+/** Name, face, one sentence, and where else you are.
+ *
+ *  GitHub stats were cut here on the original call: the crew is a gym group
+ *  and a study pair, and a contributions graph tells them nothing about
+ *  whether you turned up. Reversed 2026-08-29 -- the product owner asked for
+ *  this exact 21st.dev calendar component by name and supplied its source;
+ *  see components/ui/retro-space-shooter-git-hub-calendar.tsx. */
 export function ProfileForm({ initial }: {
   initial: {
     displayName: string;
@@ -843,7 +847,7 @@ export function ProfileForm({ initial }: {
 }
 ```
 
-Avatar upload reuses `upload()` from Task 6 — lift it to `lib/upload.ts` if both lanes have landed, otherwise duplicate the six lines rather than editing a file Lane B owns. **No GitHub stats panel** — cut by the spec.
+Avatar upload reuses `upload()` from Task 6 — lift it to `lib/upload.ts` if both lanes have landed, otherwise duplicate the six lines rather than editing a file Lane B owns. **No GitHub stats panel** — cut by the spec. **Reversed 2026-08-29:** the product owner asked for this exact 21st.dev calendar component by name (Task 21) and supplied its source; it ships gated on a non-empty GitHub handle — see `components/ui/retro-space-shooter-git-hub-calendar.tsx`.
 
 - [ ] **Step 4: Replace the PLACEHOLDER block** in `app/(app)/settings/page.tsx` (the `Profile photo, linked socials` / `Not built yet.` panel) with `ProfileForm`, and delete the `/** PLACEHOLDER. */` comment.
 
