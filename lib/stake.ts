@@ -18,6 +18,7 @@ import {
   signWith,
   simulateOnly,
   submitAndConfirm,
+  SubmitError,
   type DryRun,
 } from "@/lib/solana";
 
@@ -104,6 +105,13 @@ export class StakeGuardError extends Error {
  * transaction bytes and have us pay for them. The checks are structural rather
  * than an exact byte comparison, because keeping the built message across a
  * serverless invocation would need a table this build does not have.
+ *
+ * What it checks is shape, and never size. Nothing here reads how much USDC
+ * the transaction moves: the swap path's output is not knowable from the bytes
+ * at all, and address-table lookups mean even the transfer path's accounts are
+ * not all present to be decoded. The amount is therefore established after the
+ * fact, from the vault's own balance -- see `finaliseStake`. Until the money is
+ * counted there, a transaction passing this function is only the right shape.
  *
  * What it cannot stop: somebody getting the sponsor to pay for a *different*
  * DFlow swap that still delivers into this vault. That is a donation to the
@@ -377,6 +385,26 @@ export async function affordability(params: {
 }
 
 /**
+ * What the vault holds in USDC, or null when it has no account for the mint.
+ *
+ * The difference is worth keeping. Before a broadcast, a vault that has never
+ * taken a stake genuinely holds nothing, and a missing account is that zero.
+ * After one, the account exists -- both stake paths create it on the way in --
+ * so a missing reading is the RPC failing rather than an empty vault, and
+ * flattening it to zero there would tell a member their money never arrived
+ * when it did.
+ */
+async function vaultUsdcBalance(vaultAddress: string): Promise<bigint | null> {
+  const ata = getAssociatedTokenAddressSync(new PublicKey(USDC_MINT), new PublicKey(vaultAddress));
+  try {
+    const { value } = await getConnection().getTokenAccountBalance(ata);
+    return BigInt(value.amount);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Co-signs the member's transaction with the sponsor and puts it on chain.
  *
  * `signWith` adds signatures without clearing the member's, which is the whole
@@ -414,6 +442,12 @@ export async function finaliseStake(params: {
    * The membership is still written, so the rest of the demo (the pact going
    * live, a check-in, a settlement) can be walked through end to end. The
    * signature recorded is deliberately not a signature.
+   *
+   * The delivery check below is skipped here, deliberately, and not because
+   * nobody got round to it. Nothing is broadcast in this mode, so the vault's
+   * balance cannot rise, and a check reading it would refuse every rehearsal
+   * for the one reason a rehearsal is not asking about. A rehearsal is not
+   * evidence that money moved and has never claimed to be.
    */
   let dryRun: DryRun | undefined;
   let signature: string;
@@ -427,7 +461,50 @@ export async function finaliseStake(params: {
     }
     signature = `${DRY_RUN_SIGNATURE_PREFIX}${Date.now()}`;
   } else {
+    /**
+     * Count the money.
+     *
+     * The guard has checked the transaction's shape and cannot check its size,
+     * so the only honest measure of what a member put in is the vault itself,
+     * read either side of the broadcast. The *rise* is what counts, not the
+     * total: a vault holding four other people's stakes would clear an
+     * absolute threshold on a transaction that delivered nothing.
+     *
+     * This is the comparison that decides whether the membership is written.
+     * Settlement pays every winner a whole `stakeUsdc` principal back out of
+     * the vault's actual balance, so a member recorded `staked` on one atomic
+     * unit is a member paid a whole stake out of the rest of the crew's money,
+     * and the shortfall lands on whoever the payout loop reaches last. Nobody
+     * chose that, which is the part that makes it unacceptable.
+     *
+     * What it does not close: another member's stake confirming inside this
+     * window is counted as this one's, which would mask an under-delivery.
+     * Shutting that needs a lock on the vault held across the broadcast, which
+     * this build does not have. Reported rather than closed, and the custody
+     * document is where it belongs.
+     */
+    const before = (await vaultUsdcBalance(pact.vaultAddress)) ?? 0n;
     signature = await submitAndConfirm(tx, params.lastValidBlockHeight);
+    const after = await vaultUsdcBalance(pact.vaultAddress);
+
+    if (after === null) {
+      /**
+       * Not a refusal, and not the member's fault: the transaction confirmed
+       * and only the reading of it failed. `SubmitError` rather than anything
+       * else because the route answers that one with the signature and a "do
+       * not retry" -- and a member told this did not go through is a member who
+       * stakes a second time, which is the one outcome worse than not knowing.
+       */
+      throw new SubmitError("Confirmed, but the vault could not be read.", signature);
+    }
+
+    const delivered = after - before;
+    if (delivered < pact.stakeUsdc) {
+      throw new StakeGuardError(
+        `That transaction put ${delivered} into the vault and the stake is ${pact.stakeUsdc}. ` +
+          `You are not staked. What did arrive is the crew's now.`,
+      );
+    }
   }
 
   const user = await prisma.user.findUniqueOrThrow({
