@@ -128,21 +128,32 @@ export function outOfReachVerdict(params: {
 
 // --- the slash commands -----------------------------------------------------
 
-/** Name, description. The order they are listed in and the order they are answered in. */
-export const COMMANDS: { name: string; hint: string }[] = [
+/**
+ * Name, what it takes after the name, description. The order they are listed in
+ * and the order they are answered in.
+ *
+ * `arg` is angle brackets when the command is useless without it and square
+ * ones when it changes what the command does -- the same convention a man page
+ * uses, and the only two shapes here.
+ */
+export const COMMANDS: { name: string; arg?: string; hint: string }[] = [
   { name: "status", hint: "where you are this period" },
   { name: "crew", hint: "everyone's standing" },
   { name: "stake", hint: "what is riding on it" },
   { name: "invite", hint: "the code to hand round" },
-  { name: "exempt", hint: "ask to be let off" },
-  { name: "settle", hint: "close the period and move the money" },
+  { name: "exempt", arg: "<reason>", hint: "ask to be let off" },
+  { name: "settle", arg: "[force]", hint: "close the period and move the money" },
   { name: "help", hint: "this" },
 ];
 
 export function helpReply(): string {
   return [
     `${cap(spellNumber(COMMANDS.length))} commands. Nothing else is a message.`,
-    ...COMMANDS.map((c) => `/${c.name}${c.name === "exempt" ? " <reason>" : ""} — ${c.hint}`),
+    ...COMMANDS.map((c) => `/${c.name}${c.arg ? ` ${c.arg}` : ""} — ${c.hint}`),
+    // Force gets a line of its own because it is the only word here that can
+    // take money off somebody who has not broken the rule yet. A member finding
+    // that out afterwards is the failure this sentence exists to prevent.
+    "Force closes a period that is still running. Everyone who has not finished by then has missed, and it does not come back.",
   ].join("\n");
 }
 
@@ -255,4 +266,54 @@ export function settledLine(params: { failed: number; potUsdc: string }): string
 
 export function settleFailedLine(reason: string): string {
   return `The settlement did not finish. ${reason}`;
+}
+
+/**
+ * `/settle` takes nothing, or the single word `force`. This is the gate.
+ *
+ * Forcing settles a period that is still running, and a period that is still
+ * running has almost nobody in it who has finished yet -- so it marks most of
+ * the crew as having missed and moves their stakes. There is no undo: the
+ * settlement row is the mutex that stops the period being settled again
+ * properly once the week actually ends. That is why it cannot be the default,
+ * cannot be a flag on the server, and cannot be inferred.
+ *
+ * Nothing but the exact word turns it on. A typo, a near miss, an extra word
+ * and anything else all come back as not understood rather than falling through
+ * to an ordinary settle -- being wrong in that direction costs a member one
+ * retyped command, and being wrong in the other costs them the pact.
+ */
+export function parseSettle(argument: string): { force: boolean } | null {
+  const arg = argument.trim().toLowerCase();
+  if (arg.length === 0) return { force: false };
+  if (arg === "force") return { force: true };
+  return null;
+}
+
+/** Said instead of `settlingLine` when the member typed `/settle force`. */
+export function settlingForcedLine(): string {
+  return "Closing the period early. Anyone who has not finished by now has missed it, and that does not come back.";
+}
+
+/** The dry correction for `/settle` followed by something that is not `force`. */
+export function settleUnknownArgumentReply(argument: string): string {
+  return `There is no /settle ${argument}. /settle closes the period. /settle force closes one that is not over yet.`;
+}
+
+// --- when the photo does not make it ----------------------------------------
+
+/**
+ * A check-in the crew will never see, because the photo never reached storage.
+ *
+ * Said when the pact's proof is a photo. The session is not recorded at all: it
+ * would count towards the cadence with nothing behind it, which is the one
+ * thing the crew cannot check and the one thing the whole product rests on.
+ */
+export function photoUploadRefusalLine(reason: string): string {
+  return `${reason} A check-in without a photo is not a check-in, so nothing was recorded.`;
+}
+
+/** The same failure on a pact that only asks members to say they turned up. */
+export function photoUploadSkippedLine(reason: string): string {
+  return `${reason} This pact takes your word for it, so it stands without one.`;
 }

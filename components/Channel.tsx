@@ -19,8 +19,11 @@ import {
   helpReply,
   inviteReply,
   outOfReachVerdict,
+  parseSettle,
   settledLine,
   settleFailedLine,
+  settleUnknownArgumentReply,
+  settlingForcedLine,
   settlingLine,
   outlookLine,
   stakeReply,
@@ -270,9 +273,19 @@ export function Channel({
       case "stake":
         say(stakeReply(view.bot));
         break;
-      case "settle":
-        void settle();
+      case "settle": {
+        // The parse is in lib/bot.ts and not inlined here, because it is the
+        // only thing standing between a mistyped command and a pact settled a
+        // week early. Anything it does not recognise is corrected rather than
+        // treated as a plain /settle.
+        const settling = parseSettle(argument);
+        if (!settling) {
+          say(settleUnknownArgumentReply(argument));
+          break;
+        }
+        void settle(settling.force);
         break;
+      }
       case "invite":
         setQrOpen(true);
         say(inviteReply());
@@ -299,14 +312,19 @@ export function Channel({
   /**
    * Closes the period. Safe to run twice -- who failed comes out of the
    * sessions, not out of who typed it, and the settlement row is the mutex.
+   *
+   * `force` closes a period that has not ended yet, which marks everyone who
+   * has not finished by now as having missed and cannot be taken back. It is
+   * said out loud before the request rather than after it, so the member reads
+   * what it does while it is still doing it.
    */
-  async function settle() {
-    say(settlingLine());
+  async function settle(force: boolean) {
+    say(force ? settlingForcedLine() : settlingLine());
     try {
       const res = await fetch(`/api/pacts/${view.pactId}/settle`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ force }),
       });
       const body = await res.json().catch(() => ({}));
 

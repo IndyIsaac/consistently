@@ -11,6 +11,12 @@ import {
   inviteReply,
   outOfReachVerdict,
   outlookLine,
+  parseSettle,
+  photoUploadRefusalLine,
+  photoUploadSkippedLine,
+  settleUnknownArgumentReply,
+  settlingForcedLine,
+  settlingLine,
   spellNumber,
   stakeReply,
   statusReply,
@@ -174,6 +180,14 @@ describe("the commands", () => {
     expect(COMMANDS).toHaveLength(7);
   });
 
+  // Force can take money off a member who has not broken the rule yet, so
+  // /help has to say what it does rather than leave it to be found out.
+  it("names force in the list and says what it costs", () => {
+    const help = helpReply();
+    expect(help).toContain("/settle [force]");
+    expect(help).toMatch(/does not come back/);
+  });
+
   it("corrects an unknown command dryly rather than erroring", () => {
     const reply = unknownCommandReply("gym");
     expect(reply).toBe("There is no /gym. /help lists the seven there are.");
@@ -222,8 +236,68 @@ describe("the commands", () => {
       stakeReply(pact),
       inviteReply(),
       crewStandingLine("Dave", 1, 5, cadenceOutlook(1, 3, gym)),
+      settlingForcedLine(),
+      settleUnknownArgumentReply("tomorrow"),
+      photoUploadRefusalLine("Photo upload is not configured."),
+      photoUploadSkippedLine("Photo upload is not configured."),
     ]) {
       expect(isDeadpan(reply)).toBe(true);
     }
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The one destructive command.
+ *
+ * Forcing a settlement judges a period that is still running, which marks
+ * everyone who has not finished yet as having missed -- and the settlement row
+ * is the mutex, so there is no second, proper run afterwards. The gate is this
+ * parse and nothing else, so it is where the damage is either prevented or not.
+ * ------------------------------------------------------------------------- */
+describe("parsing /settle", () => {
+  it("treats a bare /settle as the ordinary, refusable one", () => {
+    expect(parseSettle("")).toEqual({ force: false });
+    expect(parseSettle("   ")).toEqual({ force: false });
+  });
+
+  it("turns force on for the exact word, however it was capitalised", () => {
+    expect(parseSettle("force")).toEqual({ force: true });
+    expect(parseSettle("Force")).toEqual({ force: true });
+    expect(parseSettle("  FORCE  ")).toEqual({ force: true });
+  });
+
+  it("refuses to read anything else as force, which is the safe way to be wrong", () => {
+    // A typo, a near miss and an extra word all come back not understood. None
+    // of them may fall through to an ordinary settle either, or a member who
+    // meant to force would be told the week is not over and try harder.
+    for (const argument of ["froce", "forced", "force now", "yes", "-f", "force everyone"]) {
+      expect(parseSettle(argument)).toBeNull();
+    }
+  });
+
+  it("says what was not understood, and what the two forms are", () => {
+    expect(settleUnknownArgumentReply("tomorrow")).toBe(
+      "There is no /settle tomorrow. /settle closes the period. /settle force closes one that is not over yet.",
+    );
+  });
+
+  it("states plainly what forcing does before it does it", () => {
+    const line = settlingForcedLine();
+    expect(line).toMatch(/does not come back/);
+    expect(line).not.toBe(settlingLine());
+  });
+});
+
+describe("a check-in whose photo never reached storage", () => {
+  it("refuses the check-in outright when the pact is one that wants a photo", () => {
+    expect(photoUploadRefusalLine("Photo upload is not configured.")).toBe(
+      "Photo upload is not configured. A check-in without a photo is not a check-in, so nothing was recorded.",
+    );
+  });
+
+  it("keeps the check-in when the pact takes the member's word for it", () => {
+    expect(photoUploadSkippedLine("Photo upload is not configured.")).toBe(
+      "Photo upload is not configured. This pact takes your word for it, so it stands without one.",
+    );
   });
 });

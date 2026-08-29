@@ -262,8 +262,11 @@ export async function settlePact(
    * both wrong and unrecoverable, since the settlement row is the mutex that
    * stops it being run again properly.
    *
-   * `force` exists for the demo and for tests. It is not reachable from the
-   * channel: `/settle` on an unfinished week gets the sentence below.
+   * `force` exists for the demo and for tests, and a member has to name it:
+   * `/settle force` and nothing else sets it, `/settle` on an unfinished week
+   * still gets the sentence below, and nothing infers it -- not the route, not
+   * an env var, not a retry. See `parseSettle` in lib/bot.ts, which is the
+   * whole of the gate.
    */
   const thisPeriod = periodDayKeys(rule, pact.timezone, now);
   const stillRunning = thisPeriod.includes(periodKey) || periodKey >= thisPeriod[0];
