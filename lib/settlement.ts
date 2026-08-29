@@ -15,7 +15,7 @@ import { buildOrder, PAYOUT_MINTS, USDC_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
 import { formatMoney } from "@/lib/money";
 import { settledLine } from "@/lib/bot";
-import { periodDayKeys, periodKeyBefore } from "@/lib/pact-view";
+import { periodDayKeys, periodDayKeysFrom, periodKeyBefore } from "@/lib/pact-view";
 import { dayKeyFor, hasFailed, RuleConfigSchema, type RuleConfig } from "@/lib/rules";
 import {
   deserializeTx,
@@ -318,7 +318,21 @@ export async function settlePact(
   });
 
   const rule = RuleConfigSchema.parse(pact.ruleConfig);
-  const inPeriod = new Set(periodDayKeys(rule, pact.timezone, now));
+  /**
+   * The days of the period being settled -- taken from `periodKey`, not from
+   * `now`.
+   *
+   * This read `periodDayKeys(rule, pact.timezone, now)`, which is the period it
+   * currently *is*. Those are the same period only when the caller is settling
+   * the week it is standing in, which was every caller until `/settle` learned
+   * to close a finished one. After that, a crew who went five for five last
+   * week and typed `/settle` on Monday morning were judged on a week they had
+   * not started: nobody has a session in it yet, so everybody failed -- and the
+   * settlement row is the mutex, so there is no second run to put it right. It
+   * inverts as readily as it destroys: a member idle last week but working this
+   * one was paid as a winner out of a week they had missed.
+   */
+  const inPeriod = new Set(periodDayKeysFrom(rule, periodKey));
 
   /**
    * A period that is still running cannot be judged.

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import type { User } from "@prisma/client";
 import { POST } from "@/app/api/pacts/[id]/settle/route";
 import { prisma } from "@/lib/db";
@@ -30,13 +30,30 @@ vi.mock("@/lib/solana", async (importOriginal) => {
   return {
     ...actual,
     loadSponsor: () => Keypair.generate(),
+    // Every payout that gets this far is a real transaction, really signed by
+    // the vault and the sponsor -- only the network is stood in for, so the
+    // building and the signing are still under test. Both exits are covered
+    // because .env sets STAKE_DRY_RUN and a test must not depend on that.
+    submitAndConfirm: async () => "sig-under-test",
+    simulateOnly: async () => ({
+      simulated: true as const,
+      ok: true,
+      error: null,
+      unitsConsumed: 1,
+      logs: [],
+    }),
     getConnection: () => ({
       // The vault holds nothing anyone has to be paid out of. `settlePact`
       // already treats a missing token account as a zero balance, which is
-      // what a vault nobody has staked into really looks like.
+      // what a vault nobody has staked into really looks like. Winners still
+      // get their own principal back, so a payout still gets built.
       getTokenAccountBalance: async () => {
         throw new Error("could not find account");
       },
+      getLatestBlockhash: async () => ({
+        blockhash: PublicKey.default.toBase58(),
+        lastValidBlockHeight: 1,
+      }),
     }),
   };
 });
@@ -97,6 +114,26 @@ function post(pactId: string, body: unknown) {
 /** A fortnight back, so the week before this one is finished and unsettled. */
 const A_FORTNIGHT_AGO = () => new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
+/**
+ * One session that counts: inside the window, closed, and comfortably over the
+ * fixture's thirty-minute minimum.
+ *
+ * 03:00Z is 10:00 in Asia/Bangkok on the same date, so the stored `dayKey` and
+ * the one `countValidDays` derives from `startedAt` agree -- if they did not,
+ * this fixture would be testing its own arithmetic rather than the filter.
+ */
+async function validSessionOn(membershipId: string, dayKey: string) {
+  const startedAt = new Date(`${dayKey}T03:00:00.000Z`);
+  await prisma.session.create({
+    data: {
+      membershipId,
+      startedAt,
+      endedAt: new Date(startedAt.getTime() + 45 * 60_000),
+      dayKey,
+    },
+  });
+}
+
 describe("settling from the channel", () => {
   // The test that could not exist before: every `/settle` was refused, because
   // the route defaulted to the period the crew was still in.
@@ -112,6 +149,60 @@ describe("settling from the channel", () => {
     const rows = await prisma.settlement.findMany({ where: { pactId: pact.id } });
     expect(rows.map((r) => r.periodKey)).toEqual([previous]);
     expect(rows[0].periodKey).not.toBe(current);
+
+    await cleanup();
+  });
+
+  /**
+   * The test the other fixtures cannot be: two weeks that are not empty, and
+   * which are not the same week.
+   *
+   * `settlePact` windowed every member's sessions through the days of the
+   * period containing *now* and never looked at the period key it was asked to
+   * settle. That was invisible while the only reachable key was the current
+   * period. The moment a bare `/settle` targeted a finished one, a crew that
+   * kept the rule all last week was judged on a week they had not started --
+   * everyone marked failed, on a settlement row that is the mutex, so there is
+   * no second run to put it right.
+   *
+   * Both directions are here, because the bug has both: the member who did the
+   * work in the settled week must win it, and the member doing the work in the
+   * *running* week must not be paid out of a week they missed.
+   */
+  it("judges the week it is settling, not the week it happens to be run in", async () => {
+    const { users, pact, cleanup } = await fixture(A_FORTNIGHT_AGO());
+    const members = await prisma.membership.findMany({
+      where: { pactId: pact.id },
+      orderBy: { userId: "asc" },
+    });
+    const byUser = new Map(members.map((m) => [m.userId, m]));
+    const kept = byUser.get(users[0].id)!;
+    const idle = byUser.get(users[1].id)!;
+
+    const lastWeek = weekDayKeys(pact.timezone, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+    const thisWeek = weekDayKeys(pact.timezone, new Date());
+
+    // Five of five in the week being settled, and nothing since.
+    for (const day of lastWeek.slice(0, 5)) await validSessionOn(kept.id, day);
+    // The whole of the running week, and nothing in the one being settled.
+    // Some of these days may not have happened yet, which `isValidSession`
+    // neither knows nor cares about -- what matters is that they are in the
+    // wrong week and must not count.
+    for (const day of thisWeek) await validSessionOn(idle.id, day);
+
+    const res = await post(pact.id, {});
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.failedCount).toBe(1);
+    expect(body.payouts).toHaveLength(1);
+    expect(body.payouts[0].membershipId).toBe(kept.id);
+
+    const after = new Map(
+      (await prisma.membership.findMany({ where: { pactId: pact.id } })).map((m) => [m.id, m.status]),
+    );
+    expect(after.get(kept.id)).toBe("passed");
+    expect(after.get(idle.id)).toBe("failed");
 
     await cleanup();
   });
