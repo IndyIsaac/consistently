@@ -98,6 +98,18 @@ export function ProfileForm({ initial }: {
       }),
     });
     if (res.ok) {
+      const body = await res.json();
+      // The response is what the database actually holds, not what the form
+      // happened to have typed into it -- an omitted key (a blanked name, for
+      // instance) means the server left the old value in place, and the form
+      // needs to say so too. Trusting local state here is exactly how a
+      // "Saved" badge ends up next to a value nobody saved.
+      setForm({
+        displayName: body.displayName,
+        bio: body.bio ?? "",
+        avatarUrl: body.avatarUrl ?? "",
+        socials: (body.socials as Record<string, string> | null) ?? {},
+      });
       // Same reasoning as onAvatarChange: a save that goes on to succeed
       // retires whatever error the previous attempt left on screen.
       setError(null);
