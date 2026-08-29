@@ -539,6 +539,19 @@ git commit -m "feat: the creator sets the shot, and the default is USDC"
 
 ### Task 7 (Lane B): The member sees the reference while checking in
 
+> **SUPERSEDED IN PART — Ruling 14, 2026-08-29.** Steps 1 and 2 below (widening
+> `CheckInCamera`'s props and rendering the reference inside it) are **not** to be
+> implemented. The brief's JSX assumed block flow, but `Channel.tsx:482` composes the
+> camera and the command input as siblings in a horizontal flex pill, so the snippet
+> would have become a third item in that row rather than stacking above the button —
+> and a 280-character `proofDescription` would render in a ~140px column.
+>
+> Instead: render the reference block in `Channel.tsx` itself, full-width, between the
+> existing "Checked in." status pill (`Channel.tsx:466-471`, which is the precedent for
+> exactly this) and the composer pill. `CheckInCamera.tsx` is **unchanged** — it gains no
+> props, because nothing would read them. This task's ownership is `components/Channel.tsx`
+> alone.
+
 **Files:**
 - Modify: `components/CheckInCamera.tsx:22-27` (props), and the channel composer that renders it
 
