@@ -369,7 +369,10 @@ export function Channel({
         say(settleFailedLine(typeof body.error === "string" ? body.error : "Try again."));
         return;
       }
-      say(settledLine({ failed: body.payouts?.length ?? 0, potUsdc: body.potUsdc ?? "0" }));
+      // `failed`, not `payouts.length`: payouts are the winners, so counting
+      // them announced three misses in a crew of four where one missed, and
+      // announced that everybody had missed when nobody had.
+      say(settledLine({ failed: body.failed ?? 0, potUsdc: body.potUsdc ?? "0" }));
       await refresh();
     } catch {
       say(settleFailedLine("Could not reach the settlement."));

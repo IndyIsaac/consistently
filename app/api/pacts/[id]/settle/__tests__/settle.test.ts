@@ -118,6 +118,14 @@ describe("settling from the channel", () => {
     const res = await post(pact.id, { force: true });
     expect(res.status).toBe(200);
 
+    // How many missed, said as a number and not left to be counted from the
+    // payouts -- the payouts are the winners, and the channel was reading
+    // their length as the number who missed. Both members missed here and
+    // neither is owed anything, so the two lists are 2 and 0.
+    const body = await res.json();
+    expect(body.failed).toBe(2);
+    expect(body.payouts).toHaveLength(0);
+
     // Nobody did anything, so nobody is owed anything -- the pot has no winner
     // to go to and stays in the vault. What force did is on the record: a
     // settlement for this period, and two members marked as having missed it.

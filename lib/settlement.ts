@@ -240,7 +240,17 @@ export async function settlePact(
   periodKey: string,
   now: Date = new Date(),
   options: { force?: boolean } = {},
-): Promise<{ payouts: SettlementRecord["payouts"]; potUsdc: string }> {
+): Promise<{
+  payouts: SettlementRecord["payouts"];
+  potUsdc: string;
+  /**
+   * How many members missed. Not derivable from `payouts`, which is the
+   * winners -- and the channel was reading its length as this number, so with
+   * one loser in a crew of four the bot announced that three had missed, and
+   * with nobody missing at all it announced that everybody had.
+   */
+  failed: number;
+}> {
   const pact = await prisma.pact.findUniqueOrThrow({
     where: { id: pactId },
     include: {
@@ -422,7 +432,7 @@ export async function settlePact(
     },
   });
 
-  return { payouts: record.payouts, potUsdc: pot.toString() };
+  return { payouts: record.payouts, potUsdc: pot.toString(), failed: failed.length };
 }
 
 /** A winner taking USDC needs a transfer, not a route. */
