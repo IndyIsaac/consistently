@@ -1001,6 +1001,20 @@ Expected: the route prices, the member signs, the sponsor co-signs, the guard pa
 
 - [ ] **Step 3: Capture the signatures.** Record the Solscan URL for the stake transaction and for each settlement payout.
 
+- [ ] **Step 3a: Close Task 2's deferred verification (Ruling 10).** Task 2 could not prove the
+  payout-token round-trip: `finaliseStake` needs a real signed Solana transaction, and seeded
+  members carry placeholder wallet strings (`seed-wallet-*`), not keypairs. This cycle is the
+  first time a real wallet signs, so it is the first time the check is possible. Before staking,
+  choose a NON-DEFAULT payout token (SOL, not USDC) in the stake sheet. After the stake confirms:
+
+```bash
+psql "$DATABASE_URL" -c 'select "payoutMint", status from "Membership" order by "stakedAt" desc limit 1;'
+```
+
+  Expected: `payoutMint` is the wSOL mint `So11111111111111111111111111111111111111112`, NOT the
+  USDC default. If it is USDC, the write path is broken and Lane A is not done — stop and report.
+  Then confirm settlement actually paid that member in SOL.
+
 - [ ] **Step 4: Put them in `README.md`** under a new heading, with the plain statement of what each transaction is. This is the fallback if venue wifi fails on the 3rd, and it is the evidence for the submission form.
 
 - [ ] **Step 5: Add the link to Lane D's document** from `README.md`. Lane E places it; Lane D does not edit this file.
