@@ -17,6 +17,13 @@ model User {
   /// door, so once stamped the gate in app/(app)/layout.tsx never asks the RPC
   /// about this user again -- one balance call per account, for its lifetime.
   walletFundedAt DateTime?
+  bio           String?
+  avatarUrl     String?
+  /// { "x": "...", "github": "...", "instagram": "...", "telegram": "..." }
+  /// Json rather than four columns: the set is presentational and will change.
+  socials       Json?
+  /// Linked after the fact, so a wallet-only account has a way back in.
+  email         String?      @unique
   memberships   Membership[]
   reactions     Reaction[]
   votes         Vote[]
