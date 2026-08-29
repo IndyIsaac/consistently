@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { AppearanceSetting } from "@/components/AppearanceSetting";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { WalletPanel } from "@/components/WalletPanel";
 import { readHoldings } from "@/lib/holdings";
@@ -52,10 +51,6 @@ export default async function SettingsPage() {
           <FieldLabel>Profile photo, linked socials</FieldLabel>
           <p className="mt-2 text-[14px] text-grey-on-ground">Not built yet.</p>
         </div>
-      </Panel>
-
-      <Panel className="mt-4 max-w-[32rem]">
-        <AppearanceSetting />
       </Panel>
 
       <Panel className="mt-4 max-w-[32rem]">
