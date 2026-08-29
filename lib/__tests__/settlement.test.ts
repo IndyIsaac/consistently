@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { splitPot, SettlementRecordSchema, readSettlement, settlementLine } from "@/lib/settlement";
+import {
+  periodToSettle,
+  splitPot,
+  SettlementError,
+  SettlementRecordSchema,
+  readSettlement,
+  settlementLine,
+} from "@/lib/settlement";
+import type { RuleConfig } from "@/lib/rules";
 
 describe("splitPot", () => {
   it("splits one failed stake between three winners", () => {
@@ -142,6 +150,92 @@ describe("settlementLine", () => {
     expect(settlementLine({ winners: [], usdRate: 1, currency: "USD" })).toBe(
       "Nobody missed. Nothing moved.",
     );
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Which period a bare `/settle` means.
+ *
+ * The one the crew is in cannot be it: that period is still running, the guard
+ * refuses it, and a `/settle` that can only ever be refused funnels every
+ * member into `/settle force` -- the destructive command -- to get anything to
+ * happen at all. So the safe command has to name a period that is genuinely
+ * over, which is what "close the week that just ended" meant all along.
+ * ------------------------------------------------------------------------- */
+describe("periodToSettle", () => {
+  const week: RuleConfig = {
+    cadence: 5, period: "week", sessionType: "checkin_checkout", minDurationMins: 30,
+    windowStart: "05:00", windowEnd: "22:00", proof: "photo",
+    failsWhenMissedExceeds: 0, split: "equal", exemption: "majority", durationPeriods: 12,
+  };
+  const day: RuleConfig = { ...week, period: "day", cadence: 1 };
+
+  // Friday 2026-08-28 in Asia/Bangkok. The crew is in the week of Monday the
+  // 24th; the week that just ended began Monday the 17th.
+  const now = new Date("2026-08-28T10:00:00.000Z");
+  const tz = "Asia/Bangkok";
+  const began = new Date("2026-07-01T00:00:00.000Z");
+
+  it("means the week that just ended, not the one the crew is in", () => {
+    const key = periodToSettle({ rule: week, timezone: tz, now, began, settled: [] });
+    expect(key).toBe("2026-08-17");
+    // The destructive one, stated so a refactor cannot quietly return it.
+    expect(key).not.toBe("2026-08-24");
+  });
+
+  it("skips back over weeks that are already settled", () => {
+    expect(
+      periodToSettle({ rule: week, timezone: tz, now, began, settled: ["2026-08-17"] }),
+    ).toBe("2026-08-10");
+    expect(
+      periodToSettle({ rule: week, timezone: tz, now, began, settled: ["2026-08-17", "2026-08-10"] }),
+    ).toBe("2026-08-03");
+  });
+
+  it("does the same arithmetic a day at a time for a daily rule", () => {
+    expect(periodToSettle({ rule: day, timezone: tz, now, began, settled: [] })).toBe("2026-08-27");
+    expect(
+      periodToSettle({ rule: day, timezone: tz, now, began, settled: ["2026-08-27"] }),
+    ).toBe("2026-08-26");
+  });
+
+  it("refuses a pact that has not finished a period yet, rather than reaching back past it", () => {
+    // The demo case: a pact created minutes ago. The week before it existed is
+    // one nobody could have checked into, so settling it would mark the whole
+    // crew failed for a week that was never theirs.
+    expect(() =>
+      periodToSettle({
+        rule: week, timezone: tz, now, settled: [],
+        began: new Date("2026-08-25T09:00:00.000Z"),
+      }),
+    ).toThrow(SettlementError);
+    expect(() =>
+      periodToSettle({
+        rule: week, timezone: tz, now, settled: [],
+        began: new Date("2026-08-25T09:00:00.000Z"),
+      }),
+    ).toThrow(/has not finished a week yet/);
+  });
+
+  it("counts the period the pact began in as the crew's own", () => {
+    // Began Wednesday of the week of the 17th: that week is finished and it is
+    // theirs, so it settles rather than being treated as before their time.
+    expect(
+      periodToSettle({
+        rule: week, timezone: tz, now, settled: [],
+        began: new Date("2026-08-19T09:00:00.000Z"),
+      }),
+    ).toBe("2026-08-17");
+  });
+
+  it("says so when every finished period is already settled", () => {
+    expect(() =>
+      periodToSettle({
+        rule: week, timezone: tz, now,
+        began: new Date("2026-08-11T00:00:00.000Z"),
+        settled: ["2026-08-17", "2026-08-10"],
+      }),
+    ).toThrow(/Every week that has ended is settled/);
   });
 });
 

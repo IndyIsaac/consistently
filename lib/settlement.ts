@@ -14,8 +14,8 @@ import { prisma } from "@/lib/db";
 import { buildOrder, PAYOUT_MINTS, USDC_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
 import { formatMoney } from "@/lib/money";
-import { periodDayKeys } from "@/lib/pact-view";
-import { dayKeyFor, hasFailed, RuleConfigSchema } from "@/lib/rules";
+import { periodDayKeys, periodKeyBefore } from "@/lib/pact-view";
+import { dayKeyFor, hasFailed, RuleConfigSchema, type RuleConfig } from "@/lib/rules";
 import {
   deserializeTx,
   DRY_RUN,
@@ -174,6 +174,60 @@ export function settlementLine(s: {
   );
 }
 
+export class SettlementError extends Error {}
+
+/**
+ * Which period a bare `/settle` means: the most recent one that has actually
+ * finished and has not been settled yet.
+ *
+ * WHY THIS IS NOT THE CURRENT PERIOD. It used to be, and the consequence was
+ * not that `/settle` did the wrong thing -- it was that `/settle` could not do
+ * anything at all. The guard below refuses any key inside the running period,
+ * the current period's key always is one, so the command was refused on every
+ * day of every week for every crew. A member who wants a period closed then
+ * reads `/help`, finds `force`, and types the destructive command to get any
+ * result at all. Making the safe command work is what stops the product
+ * funnelling people into the unsafe one.
+ *
+ * WHY IT STOPS AT `began`. Reaching further back than the pact is not a
+ * harmless empty settlement: nobody has sessions in a week the crew did not
+ * exist for, so every member is marked failed for it, and the settlement row
+ * is the mutex that stops it being redone. A pact minutes old therefore has
+ * nothing to settle, and says so, rather than judging a week that was never
+ * anyone's. `force` is the answer to that, and it is a different question.
+ *
+ * Throws rather than returning null so the refusal travels the same road as
+ * every other refusal here: `SettlementError`, which the route answers 400
+ * with, carrying this sentence to the member unchanged.
+ */
+export function periodToSettle(params: {
+  rule: RuleConfig;
+  timezone: string;
+  now: Date;
+  /** When the crew's clock started: `startsAt ?? createdAt`, as lib/queries.ts reads it. */
+  began: Date;
+  /** Every period key that already has a settlement row. */
+  settled: Iterable<string>;
+}): string {
+  const { rule, timezone, now, began } = params;
+  const settled = new Set(params.settled);
+
+  const first = periodDayKeys(rule, timezone, began)[0];
+  const current = periodDayKeys(rule, timezone, now)[0];
+
+  // Keys are crew-local `YYYY-MM-DD`, so lexicographic order is chronological
+  // order and the walk is guaranteed to terminate at `first`.
+  let key = periodKeyBefore(rule, current);
+  if (key < first) {
+    throw new SettlementError(`This pact has not finished a ${rule.period} yet.`);
+  }
+  while (key >= first) {
+    if (!settled.has(key)) return key;
+    key = periodKeyBefore(rule, key);
+  }
+  throw new SettlementError(`Every ${rule.period} that has ended is settled.`);
+}
+
 /* ---------------------------------------------------------------------------
  * The other half: deciding who kept the rule, and moving the money.
  * ------------------------------------------------------------------------- */
@@ -191,8 +245,6 @@ async function vaultUsdcBalance(vaultAddress: string): Promise<bigint> {
     return 0n;
   }
 }
-
-export class SettlementError extends Error {}
 
 /**
  * Broadcast, or rehearse. See the note on `simulateOnly` in lib/solana.ts --

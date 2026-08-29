@@ -4,7 +4,7 @@ import { requireUser, UnauthorizedError } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { periodDayKeys } from "@/lib/pact-view";
 import { RuleConfigSchema } from "@/lib/rules";
-import { settlePact, SettlementError } from "@/lib/settlement";
+import { periodToSettle, settlePact, SettlementError } from "@/lib/settlement";
 import { SubmitError } from "@/lib/solana";
 
 /* ---------------------------------------------------------------------------
@@ -17,6 +17,11 @@ import { SubmitError } from "@/lib/solana";
  * Only members can call it, and it is idempotent by the unique index on
  * (pactId, periodKey): a second call resumes an interrupted run rather than
  * paying anyone twice.
+ *
+ * With no `periodKey` it closes the most recent finished, unsettled period --
+ * see `periodToSettle`. It used to default to the period the crew was still
+ * in, which the guard refuses by definition, so no unforced settle could
+ * succeed for any crew on any day.
  *
  * `force` closes a period that has not ended. It is here because there is no
  * scheduler and no way to wait a week in front of a room, and it is a boolean
@@ -63,17 +68,41 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   try {
-    const pact = await prisma.pact.findUniqueOrThrow({ where: { id } });
+    const pact = await prisma.pact.findUniqueOrThrow({
+      where: { id },
+      include: { settlements: { select: { periodKey: true } } },
+    });
     const rule = RuleConfigSchema.parse(pact.ruleConfig);
+    const now = new Date();
+    const force = parsed.data.force === true;
 
-    // Defaults to the period the crew is currently in, which is what "settle
-    // this one" means from inside the channel.
+    /**
+     * The two commands mean two different periods, and that is the whole
+     * point of having two of them.
+     *
+     * `/settle` closes the period that has ended -- the week the crew has just
+     * finished, which is what anyone means by "settle it". `/settle force`
+     * closes the period that has *not* ended, which is the only thing force
+     * is for and is why it cannot share this default: on a pact minutes old
+     * the running period is the only period there is, and `periodToSettle`
+     * would correctly refuse to find one behind it.
+     */
     const periodKey =
-      parsed.data.periodKey ?? periodDayKeys(rule, pact.timezone, new Date())[0];
+      parsed.data.periodKey ??
+      (force
+        ? periodDayKeys(rule, pact.timezone, now)[0]
+        : periodToSettle({
+            rule,
+            timezone: pact.timezone,
+            now,
+            // `startsAt` is null until every member has staked, and null again
+            // between periods. lib/queries.ts reads the crew's beginning the
+            // same way; `createdAt` is the earliest a period could be theirs.
+            began: pact.startsAt ?? pact.createdAt,
+            settled: pact.settlements.map((s) => s.periodKey),
+          }));
 
-    return NextResponse.json(
-      await settlePact(id, periodKey, new Date(), { force: parsed.data.force === true }),
-    );
+    return NextResponse.json(await settlePact(id, periodKey, now, { force }));
   } catch (e) {
     /**
      * A refusal the member is meant to read and act on -- "The week is not

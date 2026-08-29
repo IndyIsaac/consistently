@@ -41,8 +41,14 @@ vi.mock("@/lib/solana", async (importOriginal) => {
   };
 });
 
-/** A pact whose week nobody has done a thing towards. */
-async function fixture() {
+/**
+ * A pact whose week nobody has done a thing towards.
+ *
+ * `began` moves both `createdAt` and `startsAt`, which is how old the crew is
+ * as far as `/settle` is concerned. A pact that began this week has no
+ * finished period behind it; one that began a fortnight ago has last week.
+ */
+async function fixture(began?: Date) {
   const stamp = crypto.randomUUID();
   const users = await Promise.all(
     [0, 1].map((i) =>
@@ -67,6 +73,7 @@ async function fixture() {
       stakeAmount: "1000", stakeCurrency: "THB", fxRateToUsd: "0.0285",
       fxFetchedAt: new Date(), stakeUsdc: 28_500_000n,
       vaultAddress: vault.publicKey, vaultSecretEnc: vault.secretEnc,
+      ...(began ? { createdAt: began, startsAt: began, status: "active" as const } : {}),
       memberships: { create: users.map((u) => ({ userId: u.id, status: "staked" as const })) },
     },
   });
@@ -87,31 +94,83 @@ function post(pactId: string, body: unknown) {
   return POST(req, { params: Promise.resolve({ id: pactId }) });
 }
 
-describe("settling from the channel", () => {
-  it("refuses a period that is still running, in words, as a 400", async () => {
-    const { pact, cleanup } = await fixture();
+/** A fortnight back, so the week before this one is finished and unsettled. */
+const A_FORTNIGHT_AGO = () => new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
-    // No periodKey: the route defaults to the period the crew is in, which is
-    // the only thing `/settle` from the channel can mean. That default is
-    // always inside the current period, so this path is the whole command.
+describe("settling from the channel", () => {
+  // The test that could not exist before: every `/settle` was refused, because
+  // the route defaulted to the period the crew was still in.
+  it("closes the week that just ended, which is what a bare /settle means", async () => {
+    const { pact, cleanup } = await fixture(A_FORTNIGHT_AGO());
+
+    const res = await post(pact.id, {});
+    expect(res.status).toBe(200);
+
+    // Settled, and settled on the *previous* week -- not the live one.
+    const previous = weekDayKeys(pact.timezone, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))[0];
+    const current = weekDayKeys(pact.timezone, new Date())[0];
+    const rows = await prisma.settlement.findMany({ where: { pactId: pact.id } });
+    expect(rows.map((r) => r.periodKey)).toEqual([previous]);
+    expect(rows[0].periodKey).not.toBe(current);
+
+    await cleanup();
+  });
+
+  it("moves on to the week before once the last one is settled", async () => {
+    const { pact, cleanup } = await fixture(new Date(Date.now() - 28 * 24 * 60 * 60 * 1000));
+    const previous = weekDayKeys(pact.timezone, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))[0];
+    await prisma.settlement.create({
+      data: { pactId: pact.id, periodKey: previous, totalPotUsdc: 0n, payouts: {} },
+    });
+
+    const res = await post(pact.id, {});
+    expect(res.status).toBe(200);
+
+    const twoBack = weekDayKeys(pact.timezone, new Date(Date.now() - 14 * 24 * 60 * 60 * 1000))[0];
+    expect(
+      await prisma.settlement.findUnique({
+        where: { pactId_periodKey: { pactId: pact.id, periodKey: twoBack } },
+      }),
+    ).not.toBeNull();
+    await cleanup();
+  });
+
+  it("refuses a pact with no finished week behind it, rather than judging one it did not exist for", async () => {
+    // The demo pact, created minutes before the demo. The week before it was
+    // made is not the crew's to be marked failed for.
+    const { pact, cleanup } = await fixture();
     const res = await post(pact.id, {});
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/is not over/);
-    // Nothing was decided. No settlement row means a proper run is still
-    // possible when the week actually ends.
+    expect((await res.json()).error).toMatch(/has not finished a week yet/);
     expect(await prisma.settlement.count({ where: { pactId: pact.id } })).toBe(0);
     await cleanup();
   });
 
-  it("still refuses when force is asked for and answered no", async () => {
+  it("treats force: false exactly as a bare /settle, with no shortcut to the live week", async () => {
     const { pact, cleanup } = await fixture();
     const res = await post(pact.id, { force: false });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/is not over/);
+    expect((await res.json()).error).toMatch(/has not finished a week yet/);
+    expect(await prisma.settlement.count({ where: { pactId: pact.id } })).toBe(0);
     await cleanup();
   });
 
+  it("still refuses a named period that is the live one, in words, as a 400", async () => {
+    // Naming the current period explicitly is the one way left to ask for the
+    // running week without force, and the original guard still answers it.
+    const { pact, cleanup } = await fixture();
+    const res = await post(pact.id, { periodKey: weekDayKeys(pact.timezone, new Date())[0] });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/is not over/);
+    expect(await prisma.settlement.count({ where: { pactId: pact.id } })).toBe(0);
+    await cleanup();
+  });
+
+  // Force means the opposite period to a bare /settle: the one still running.
+  // On a pact minutes old that is the only period there is, which is exactly
+  // the demo, and it is why force does not share the default above.
   it("closes the running period when the member asked for force, and says who missed", async () => {
     const { pact, cleanup } = await fixture();
 
@@ -128,9 +187,8 @@ describe("settling from the channel", () => {
 
     // Nobody did anything, so nobody is owed anything -- the pot has no winner
     // to go to and stays in the vault. What force did is on the record: a
-    // settlement for this period, and two members marked as having missed it.
-    // A week rule's period key is the Monday of the crew-local week, which is
-    // exactly what the route defaults to when the channel sends no key.
+    // settlement for the live period, and two members marked as having missed
+    // it.
     const periodKey = weekDayKeys(pact.timezone, new Date())[0];
     const settlement = await prisma.settlement.findUnique({
       where: { pactId_periodKey: { pactId: pact.id, periodKey } },

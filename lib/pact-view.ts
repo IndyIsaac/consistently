@@ -50,6 +50,19 @@ export function periodDayKeys(rule: RuleConfig, timezone: string, now: Date): st
   return rule.period === "day" ? [dayKeyFor(now, timezone)] : weekDayKeys(timezone, now);
 }
 
+/**
+ * The key of the period `n` periods before the one `periodKey` names.
+ *
+ * Plain day arithmetic on the key for both cadences, because a period key
+ * already is a day: a daily period is its own day, and a weekly one is always
+ * the Monday `weekDayKeys` produced -- and a Monday minus seven days is the
+ * previous Monday in every timezone and across every DST boundary, which is
+ * the property `addDays` above exists to have.
+ */
+export function periodKeyBefore(rule: RuleConfig, periodKey: string, n = 1): string {
+  return addDays(periodKey, rule.period === "day" ? -n : -7 * n);
+}
+
 /** The seven day keys of the crew-local week containing `now`, Monday first. */
 export function weekDayKeys(timezone: string, now: Date): string[] {
   const todayKey = dayKeyFor(now, timezone);
