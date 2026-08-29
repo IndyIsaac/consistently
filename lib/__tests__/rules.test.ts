@@ -65,6 +65,31 @@ describe("rule config schema", () => {
     }
     expect(caught).toBeInstanceOf(ZodError);
   });
+
+  it("keeps the reference photos and description on the parsed config", () => {
+    // Asserts on the OUTPUT, not merely that parse did not throw: zod strips
+    // unknown keys, so a .not.toThrow() assertion here passes before the fields
+    // exist and never fails first. Read the values back or the test is theatre.
+    const parsed = RuleConfigSchema.parse({
+      ...gym,
+      checkInReferenceUrl: "https://blob.example/in.jpg",
+      checkOutReferenceUrl: "https://blob.example/out.jpg",
+      proofDescription: "Full body in the mirror, gym floor visible behind you.",
+    });
+    expect(parsed.checkInReferenceUrl).toBe("https://blob.example/in.jpg");
+    expect(parsed.checkOutReferenceUrl).toBe("https://blob.example/out.jpg");
+    expect(parsed.proofDescription).toBe("Full body in the mirror, gym floor visible behind you.");
+  });
+
+  it("still accepts a config with no references — they are optional, and old pacts have none", () => {
+    expect(() => RuleConfigSchema.parse(gym)).not.toThrow();
+  });
+
+  it("rejects a proof description longer than 280 characters", () => {
+    expect(() =>
+      RuleConfigSchema.parse({ ...gym, proofDescription: "x".repeat(281) }),
+    ).toThrow();
+  });
 });
 
 describe("dayKeyFor", () => {

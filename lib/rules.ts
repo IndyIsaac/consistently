@@ -24,6 +24,12 @@ export const RuleConfigSchema = z
     split: z.literal("equal"),
     exemption: z.enum(["majority", "none"]),
     durationPeriods: z.number().int().min(1).max(52),
+    /** What a good check-in looks like, set by the creator. Shown next to the
+     *  camera so a member frames the same shot. Nothing compares them: the crew
+     *  does, which is PRODUCT.md's trust-based design, unchanged. */
+    checkInReferenceUrl: z.string().url().optional(),
+    checkOutReferenceUrl: z.string().url().optional(),
+    proofDescription: z.string().max(280).optional(),
   })
   .refine(
     (data) => {
