@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
-import { useWallets } from "@privy-io/react-auth/solana";
+import { useCreateWallet, useWallets } from "@privy-io/react-auth/solana";
 import { Check, Copy, TriangleAlert } from "lucide-react";
 import { CodePlate } from "@/components/CodePlate";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
@@ -15,13 +15,14 @@ import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
  * line on purpose, so this is the first place anyone is told. Then hold the
  * door until the wallet can actually pay a stake.
  *
- * The wallet itself is not a step. Privy makes one during sign-in and this
- * screen is the first time the user hears about it; the ask is money, not
- * setup, which is the only version of a wallet gate that is honest about what
- * it wants. PRODUCT.md principle 5 says "no setup errand before the thing
- * works", and a funding gate is an errand -- the trade is deliberate: an
- * unfunded member reaches a stake button that cannot work, and finding that
- * out here is better than finding it out in front of their crew.
+ * The wallet itself is not a step. One is made below for anybody who does not
+ * already have one, without ever asking them to, and this screen is the first
+ * time the user hears it exists; the ask is money, not setup, which is the
+ * only version of a wallet gate that is honest about what it wants. PRODUCT.md
+ * principle 5 says "no setup errand before the thing works", and a funding
+ * gate is an errand -- the trade is deliberate: an unfunded member reaches a
+ * stake button that cannot work, and finding that out here is better than
+ * finding it out in front of their crew.
  * ------------------------------------------------------------------------- */
 
 type InvitePreview = { name: string; rule: string | null; stake: string } | null;
@@ -35,6 +36,7 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
   const router = useRouter();
   const { ready, authenticated, user, getAccessToken } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
 
   const [address, setAddress] = useState<string | null>(null);
   const [funded, setFunded] = useState(false);
@@ -44,6 +46,7 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
   const [rehearsal, setRehearsal] = useState(false);
 
   const bootstrapped = useRef(false);
+  const creatingWallet = useRef(false);
   // Stamped on the first poll rather than at render: reading the clock during
   // render is impure, and the back-off wants the moment polling began anyway.
   const startedAt = useRef(0);
@@ -56,6 +59,30 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
    */
   const primary = user?.wallet?.address;
   const wallet = wallets.find((w) => w.address === primary) ?? wallets[0] ?? null;
+
+  /**
+   * Whether Privy already holds a wallet for this member -- which is a
+   * different question from what is connected in this browser, and the
+   * difference is the whole of the condition below.
+   *
+   * `wallets` is the connected list, and it answers the wrong question twice
+   * over. A member who signed in with Phantom but has not reconnected the
+   * extension in this tab appears there as nothing; a member who signed in with
+   * an email address on a machine that happens to have Phantom installed
+   * appears there as Phantom. Reading "the list is empty" as "make one" would
+   * hand the first of those a second, empty wallet -- and `createWallet` does
+   * not politely decline that, it throws, which would turn a sign-in that works
+   * today into a screen that does not.
+   *
+   * `linkedAccounts` is Privy's own record of what is attached to this user:
+   * Phantom for anyone who signed in with it, the embedded wallet for anyone
+   * who has already been through this screen once. Nothing of type `wallet` in
+   * it means nothing anywhere, which is the only member who should be handed
+   * one -- the same rule `createOnLogin: "users-without-wallets"` applies in
+   * app/providers.tsx, asked here because Privy never asks it for us.
+   */
+  const hasWallet =
+    user?.linkedAccounts.some((a) => a.type === "wallet" && a.chainType === "solana") ?? false;
 
   /** Every call carries the bearer as well as the cookie -- see lib/auth.ts. */
   const authed = useCallback(
@@ -78,6 +105,39 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
   useEffect(() => {
     if (ready && !authenticated) router.replace("/");
   }, [ready, authenticated, router]);
+
+  /**
+   * The wallet the email door never made.
+   *
+   * `createOnLogin: "users-without-wallets"` in app/providers.tsx only fires
+   * for a login that goes through Privy's own modal -- Privy's dashboard says
+   * so in as many words. components/FrontDoor.tsx runs the whitelabel
+   * `useLoginWithEmail` flow instead, on the app's own surface, so nothing was
+   * ever created and the effect below sat waiting on a wallet that was not
+   * coming. Every member who arrived by email watched "Making one." forever.
+   * Phantom is what hid it: a member who brings their own wallet was never
+   * waiting on this in the first place, and that is who this was tested with.
+   *
+   * The ordering against /api/me is structural, not a promise chain. Creating
+   * the wallet updates the Privy user, `useWallets()` reports the new account
+   * on the render after that, and the effect below -- which returns early
+   * while `wallet` is null -- runs then and not before. There is no window in
+   * which the server could be told an address that does not exist yet.
+   */
+  useEffect(() => {
+    if (!authenticated || !walletsReady || hasWallet || creatingWallet.current) return;
+    // Latched before the await, like `bootstrapped` below: a re-render landing
+    // mid-flight must not start a second wallet.
+    creatingWallet.current = true;
+
+    createWallet().catch(() => {
+      // The latch stays shut. Privy throws when the user already has an
+      // embedded wallet, so asking again for one it has just refused to make
+      // is a loop rather than a recovery. A reload is the retry, and remounting
+      // this component is what performs it -- which is what the copy says.
+      setError("Could not make you a wallet. Reload the page and it will try again.");
+    });
+  }, [authenticated, walletsReady, hasWallet, createWallet]);
 
   /**
    * Pair the verified sign-in with the wallet Privy just made. The server
