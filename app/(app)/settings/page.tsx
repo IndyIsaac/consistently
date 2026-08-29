@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { LinkedAccounts } from "@/components/LinkedAccounts";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { ProfileForm } from "@/components/ProfileForm";
 import { WalletPanel } from "@/components/WalletPanel";
@@ -64,6 +65,10 @@ export default async function SettingsPage() {
             }}
           />
         </div>
+      </Panel>
+
+      <Panel className="mt-4 max-w-[32rem]">
+        <LinkedAccounts walletAddress={user.walletAddress} email={viewer?.email ?? null} />
       </Panel>
 
       <Panel className="mt-4 max-w-[32rem]">

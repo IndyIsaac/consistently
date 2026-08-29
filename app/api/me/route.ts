@@ -60,13 +60,19 @@ export async function POST(req: NextRequest) {
 }
 
 /* ---------------------------------------------------------------------------
- * PATCH /api/me -- name, face, one sentence, and where else you are.
+ * PATCH /api/me -- name, face, one sentence, where else you are, and the
+ * email that gets you back in.
  *
  * Every field here is optional and independently overwritable, which is why
  * the client only sends what changed: an absent key leaves that column alone
  * instead of clearing it. walletAddress is not in the schema below at all, for
  * the same reason it is absent from the POST's update branch above -- it is
  * write-on-create only.
+ *
+ * email carries the same @unique collision risk as walletAddress above, and
+ * for the same reason: two sign-ins recovering into the same address would
+ * let one hand its stakes to the other. The try/catch below answers it the
+ * same way the POST handler answers its own.
  * ------------------------------------------------------------------------- */
 
 const PatchSchema = z.object({
@@ -74,6 +80,7 @@ const PatchSchema = z.object({
   bio: z.string().max(280).optional(),
   avatarUrl: z.string().url().optional(),
   socials: z.record(z.string(), z.string().max(200)).optional(),
+  email: z.string().email().optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -88,13 +95,23 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Nothing valid to update." }, { status: 400 });
   }
 
-  // walletAddress is deliberately absent: it is write-on-create only, for the
-  // reason given above the POST handler.
-  const user = await prisma.user.update({ where: { privyId }, data: parsed.data });
-  return NextResponse.json({
-    displayName: user.displayName,
-    bio: user.bio,
-    avatarUrl: user.avatarUrl,
-    socials: user.socials,
-  });
+  try {
+    // walletAddress is deliberately absent: it is write-on-create only, for
+    // the reason given above the POST handler.
+    const user = await prisma.user.update({ where: { privyId }, data: parsed.data });
+    return NextResponse.json({
+      displayName: user.displayName,
+      bio: user.bio,
+      avatarUrl: user.avatarUrl,
+      socials: user.socials,
+      email: user.email,
+    });
+  } catch {
+    // The only expected failure is the @unique collision on email: somebody
+    // is linking an email already claimed by another sign-in.
+    return NextResponse.json(
+      { error: "That email is already linked to another account." },
+      { status: 409 },
+    );
+  }
 }
