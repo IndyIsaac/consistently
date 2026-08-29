@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { requireUser, UnauthorizedError } from "@/lib/auth";
 
-/* A signed-in member puts an image somewhere every device can read it. Used by
- * pact reference photos and by profile avatars; check-in photos keep their own
- * path. Without BLOB_READ_WRITE_TOKEN this answers 503 rather than throwing --
- * a demo on one laptop can run without it, a demo on four phones cannot. */
+/* A signed-in member puts an image somewhere every device can read it. Pact
+ * reference photos, profile avatars and check-in photos all come through here
+ * now -- there is no second path, and lib/upload.ts is the only caller.
+ * Without BLOB_READ_WRITE_TOKEN this answers 503 rather than throwing, and a
+ * check-in on a photo pact is refused rather than recorded blind. */
 
 const MAX_BYTES = 5_000_000;
 
