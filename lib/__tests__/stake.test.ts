@@ -64,6 +64,10 @@ const chain = vi.hoisted(() => ({
 
 const db = vi.hoisted(() => ({
   pact: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
+  // `reopenForNextPeriod` reads this one. Nothing here calls it yet, so the
+  // omission cost nothing -- it would have cost the next person to write that
+  // test a confusing "cannot read findUniqueOrThrow of undefined".
+  user: { findUniqueOrThrow: vi.fn() },
   membership: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   feedItem: { create: vi.fn() },
 }));

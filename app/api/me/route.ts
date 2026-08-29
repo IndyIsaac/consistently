@@ -88,7 +88,23 @@ const PatchSchema = z.object({
   displayName: z.string().min(1).max(40).optional(),
   bio: z.string().max(280).nullable().optional(),
   avatarUrl: z.string().url().nullable().optional(),
-  socials: z.record(z.string(), z.string().max(200)).optional(),
+  /**
+   * The four the profile form offers, and no others.
+   *
+   * `z.record(z.string(), ...)` accepted any key and any number of them, so a
+   * signed-in caller could PATCH an arbitrarily large JSON blob into a column
+   * nothing else bounds. `z.object` strips what it does not name, which makes
+   * the allowlist and the cap the same line: four keys, 200 characters each.
+   */
+  socials: z
+    .object({
+      x: z.string().max(200),
+      github: z.string().max(200),
+      instagram: z.string().max(200),
+      telegram: z.string().max(200),
+    })
+    .partial()
+    .optional(),
   email: z.string().email().optional(),
 });
 
