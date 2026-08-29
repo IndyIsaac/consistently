@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
-import { FIELD } from "@/components/Panel";
+import { FIELD, FieldLabel } from "@/components/Panel";
 import { Select } from "@/components/Select";
 import { Stepper } from "@/components/Stepper";
 import type { RuleConfig } from "@/lib/rules";
@@ -18,6 +19,60 @@ import type { RuleConfig } from "@/lib/rules";
  * Colour is money only, per DESIGN.md, so the one validation message is set in
  * ink with a mark beside it rather than in red.
  * ------------------------------------------------------------------------- */
+
+// One uploader, used by both reference slots below.
+async function upload(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/uploads", { method: "POST", body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? "Upload failed.");
+  return body.url as string;
+}
+
+/**
+ * One reference photo -- what a good check-in or check-out looks like. Set
+ * once by the creator, shown to every member so they frame the same shot.
+ * Nothing here verifies anything: PRODUCT.md rules out automated proof
+ * checking on purpose, and this is a picture for a human to compare against,
+ * not an input to any check.
+ */
+function ReferenceSlot({
+  label, url, onUrl, onError,
+}: {
+  label: string;
+  url?: string;
+  onUrl: (url: string) => void;
+  onError: (msg: string) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer flex-col items-center gap-2">
+      {url ? (
+        <img src={url} alt="" className="size-20 rounded-2xl object-cover" />
+      ) : (
+        <span className="flex size-20 items-center justify-center rounded-2xl bg-surface text-[12px] text-grey-on-surface">
+          Add
+        </span>
+      )}
+      <span className="text-[12px] text-grey-on-ground">{label}</span>
+      <input
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          try {
+            onUrl(await upload(file));
+          } catch (err) {
+            onError(err instanceof Error ? err.message : "Upload failed.");
+          }
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -37,6 +92,8 @@ export function RuleEditor({
 }) {
   const set = <K extends keyof RuleConfig>(k: K, v: RuleConfig[K]) =>
     onChange({ ...value, [k]: v });
+
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Switching sessionType must never leave minDurationMins stale: it's cleared to null
   // for "checkin" (where it's irrelevant), and given a sane default when switching into
@@ -88,6 +145,51 @@ export function RuleEditor({
           />
         </Row>
       )}
+
+      {/* How proof is captured (session type, minimum session) is decided
+          above; this is what it should look like once captured. A section of
+          its own, not a Row -- it carries a label, two photos and a text
+          field rather than one control, so it takes `py-6` in place of a
+          Row's `py-3` to give that heavier content room without losing the
+          symmetric divide-y rhythm every other section keeps. */}
+      <div className="py-6">
+        <FieldLabel>What a good one looks like</FieldLabel>
+        <p className="mt-2 text-[13px] text-grey-on-ground">
+          Optional. The crew compares against it. Nothing checks it for you.
+        </p>
+
+        <div className="mt-4 flex gap-5">
+          <ReferenceSlot
+            label="Check in"
+            url={value.checkInReferenceUrl}
+            onUrl={(url) => set("checkInReferenceUrl", url)}
+            onError={setUploadError}
+          />
+          {value.sessionType === "checkin_checkout" && (
+            <ReferenceSlot
+              label="Check out"
+              url={value.checkOutReferenceUrl}
+              onUrl={(url) => set("checkOutReferenceUrl", url)}
+              onError={setUploadError}
+            />
+          )}
+        </div>
+
+        <input
+          className={`${FIELD} mt-4 w-full`}
+          maxLength={280}
+          placeholder="Full body in the mirror, gym floor behind you"
+          value={value.proofDescription ?? ""}
+          onChange={(e) => set("proofDescription", e.target.value || undefined)}
+        />
+
+        {uploadError && (
+          <p role="alert" className="mt-2 flex items-start gap-2 text-[13px] text-ink">
+            <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+            {uploadError}
+          </p>
+        )}
+      </div>
 
       {/* The one two-part control, and the only row that does not fit beside
           its own label on a phone. It takes a line of its own rather than

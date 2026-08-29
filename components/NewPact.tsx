@@ -39,7 +39,7 @@ const DEFAULT_RULE: RuleConfig = {
   durationPeriods: 12,
 };
 
-const CURRENCIES = ["THB", "USD", "GBP", "EUR", "JPY"];
+const CURRENCIES = ["USDC", "THB", "USD", "GBP", "EUR", "JPY"];
 
 const EXAMPLE = "Gym five days a week, thirty minutes minimum, photo in and photo out. ฿1,000 if you miss.";
 
@@ -55,7 +55,7 @@ export function NewPact() {
   const [name, setName] = useState("");
   const [rule, setRule] = useState<RuleConfig>(DEFAULT_RULE);
   const [stakeAmount, setStakeAmount] = useState(1000);
-  const [stakeCurrency, setStakeCurrency] = useState("THB");
+  const [stakeCurrency, setStakeCurrency] = useState("USDC");
 
   async function draft() {
     setBusy(true);
