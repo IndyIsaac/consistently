@@ -206,8 +206,9 @@ which sounds like the same claim and is not, because the vault key sits in the s
 | 10 | Payout is redirected to a wrong address | Settlement reads the destination from `Membership.user.walletAddress` (`lib/settlement.ts:361`). Whoever controls the database controls the destination. | The roster wallet is on chain, fixed at `initialize`, compared by the program. | v1: our database. v2: nobody. |
 | 11 | We quietly take a cut | `PLATFORM_FEE_BPS` and `PLATFORM_FEE_ACCOUNT` are read from the environment **at payout time** (`lib/settlement.ts:365-366`) and applied to the swap leg. Default is `0`. A crew that staked under a 0% fee can be settled under a different one, and would see nothing. | `fee_bps` and `fee_account` are fixed at `initialize` and enforced by `settle`. | v1: us, again. v2: nobody. |
 | 12 | Member keys | Members sign with Privy embedded wallets. Whoever controls the Privy app can act as any member. | **Unchanged**, and it bounds the whole design: a PDA no human controls, funded and refunded by wallets a third party controls, is a smaller improvement than "non-custodial" suggests. | Privy. In both designs. |
-| 13 | `settlePact(..., { force: true })` bypasses the period-end check | Not reachable from the route — the handler never passes it. Server-side execution could settle a running period, which marks the crew failed, pays nobody, and burns the period's mutex. A stuck period, not a diverted payout. | `settle` rejects an unfinished period on chain. | Our code review. |
+| 13 | `settlePact(..., { force: true })` bypasses the period-end check | **Reachable on purpose now, and only by name.** A member types `/settle force`; nothing else sets it — not the route's default, not an environment variable, not a retry, and not a coerced body field (`force: z.boolean()`, compared `=== true`). There is no scheduler in this build, so without it no period can be closed in front of a room. It marks everyone who has not finished as having missed, and the settlement row is the mutex, so it does not come back; `/help` and the bot both say so before it runs. A bare `/settle` closes the last finished, unsettled period and still refuses a running one. Residual: a pact that never started is refused for a bare `/settle` and not for a forced one, so forcing one marks whoever did stake as having missed — no money moves, since with no winners there is nobody to pay. | `settle` rejects an unfinished period on chain. There is no force. | Our code review, and the member who typed it. |
 | 14 | `STAKE_DRY_RUN=1` in production | The whole path runs, both signatures verify against live state, only the broadcast is skipped — and row 6's delivery check with it, necessarily, since nothing is broadcast for it to attribute. The membership is written `staked` with a signature of `dry-run:<timestamp>`. The app records money that did not move. Guarded by a deploy checklist and nothing else. | Same flag, same risk — a client-side rehearsal mode is orthogonal to custody. | Our deploy discipline. |
+| 15 | A period settled late is sized from the vault as it is now | `vaultUsdcBalance` (`lib/settlement.ts:242`) reads the vault's present balance, and `pot = balance − winnersPrincipal` (`:397`) sizes the period from it. Settle a finished week while the vault also holds the next period's stakes and the winners split money nobody forfeited. Not reachable from the channel, and the reason it is not is itself a residual; a hand-posted `periodKey` is not bounded by it. See below. | `settle` moves the balance recorded against that period, and `refund` reaches what was never settled. | v1: us, to notice. v2: nobody. |
 
 ### Row 5, in full, because it is the one guard that already exists
 
@@ -373,6 +374,34 @@ nobody ever mentions it.* An escrow that asks four people to co-sign the fact th
 the gym has reintroduced the argument the product exists to delete. That trade has not been made
 yet, and pretending otherwise would be the dishonest part.
 
+### Row 15, in full, because what shields it is the other half of it
+
+`settlePact` takes a period key and judges the sessions inside it, but it sizes the pot from the
+vault's balance *at the moment it runs*. Those agree only while the vault holds exactly the stakes
+of the period being settled. A crew who skipped closing one week and staked again the next would
+have both weeks' money in the vault, and settling the older one would hand the winners a pot
+inflated by stakes nobody had forfeited.
+
+The channel cannot reach it. `reopenForNextPeriod` (`lib/stake.ts:767`) clears `startsAt`,
+re-staking sets it again, and `periodToSettle` (`lib/settlement.ts:209`) walks back only as far as
+the period containing `startsAt ?? createdAt` (`app/api/pacts/[id]/settle/route.ts:123`) — so by
+the time a second period's stakes are in the vault, the first period is behind that floor and
+`/settle` will not name it.
+
+A request naming `periodKey` by hand is not bounded by that floor. It has to be the first day of a
+period (`isPeriodStartKey`, `lib/pact-view.ts`) and the period has to be over, and that is all it
+has to be — so a member who posts an old Monday directly can still settle a stale period against a
+vault holding the current one's stakes. It is a member of that crew spending their own crew's
+money, not an outsider, and no route in the product produces such a request. It is still the way
+in, and this document is not going to say the hazard is unreachable when one path reaches it.
+
+The floor is not a fix either way, it is a side effect — and it is one with a cost of its own: **a
+period a crew skips settling can never be settled from the channel, and those stakes stay in the
+vault.** There is no refund and no leave in v1 (row 9), so that is where they stay. Both halves are
+multi-period and neither is visible in a four-minute demo, which is the reason to write them down
+here rather than to reach into the settlement path two days before submission and unpick the thing
+that currently holds.
+
 ---
 
 ## 4. Why v1 is the honest answer for this window
@@ -424,7 +453,7 @@ not the buildathon's.
 ---
 
 **Files this document describes:** `lib/vault.ts`, `lib/stake.ts`, `lib/settlement.ts`,
-`lib/solana.ts`, `lib/queries.ts`, `app/api/pacts/route.ts`,
+`lib/solana.ts`, `lib/queries.ts`, `lib/pact-view.ts`, `app/api/pacts/route.ts`,
 `app/api/pacts/[id]/stake/route.ts`, `app/api/pacts/[id]/settle/route.ts`,
 `app/api/pacts/[id]/sessions/route.ts`, `app/api/pacts/[id]/exemptions/route.ts`,
 `prisma/schema.prisma`. Every claim above is checkable against them.
