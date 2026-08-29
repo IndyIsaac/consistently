@@ -77,6 +77,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const force = parsed.data.force === true;
 
     /**
+     * A pact that has never been live has no period anyone could have kept.
+     *
+     * `createdAt` is the fallback for when the crew began, so a pact made in an
+     * earlier week but never fully staked has a finished week behind it on the
+     * calendar and nothing behind it in fact -- and settling it marks whoever
+     * did pay as having missed a week they were never able to check into.
+     *
+     * "Never been live", not `status !== "active"`. `reopenForNextPeriod` puts
+     * the whole pact back to `funding` between periods, and a finished one sits
+     * at `settled`; refusing on either would stop a crew closing an older week
+     * they had skipped. A settlement row is proof the pact ran, and only
+     * `settlePact` writes one -- so `funding` with none is exactly the pact
+     * that never started, and nothing else.
+     */
+    if (!force && pact.status === "funding" && pact.settlements.length === 0) {
+      return NextResponse.json(
+        { error: "This pact has not started. Everyone has to stake first." },
+        { status: 400 },
+      );
+    }
+
+    /**
      * The two commands mean two different periods, and that is the whole
      * point of having two of them.
      *

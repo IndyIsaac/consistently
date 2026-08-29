@@ -61,11 +61,16 @@ vi.mock("@/lib/solana", async (importOriginal) => {
 /**
  * A pact whose week nobody has done a thing towards.
  *
- * `began` moves both `createdAt` and `startsAt`, which is how old the crew is
- * as far as `/settle` is concerned. A pact that began this week has no
- * finished period behind it; one that began a fortnight ago has last week.
+ * `began` is how old the crew is as far as `/settle` is concerned: a pact that
+ * began this week has no finished period behind it, one that began a fortnight
+ * ago has last week. It defaults to now, which is the demo -- created minutes
+ * ago and staked by everyone.
+ *
+ * `status` is `active` by default for the same reason: a pact everybody has
+ * staked. `funding` with it is a crew who never all paid, and `startsAt` is
+ * null there because that is what the stake flow actually leaves behind.
  */
-async function fixture(began?: Date) {
+async function fixture(began?: Date, status: "funding" | "active" = "active") {
   const stamp = crypto.randomUUID();
   const users = await Promise.all(
     [0, 1].map((i) =>
@@ -90,7 +95,9 @@ async function fixture(began?: Date) {
       stakeAmount: "1000", stakeCurrency: "THB", fxRateToUsd: "0.0285",
       fxFetchedAt: new Date(), stakeUsdc: 28_500_000n,
       vaultAddress: vault.publicKey, vaultSecretEnc: vault.secretEnc,
-      ...(began ? { createdAt: began, startsAt: began, status: "active" as const } : {}),
+      createdAt: began ?? new Date(),
+      status,
+      startsAt: status === "active" ? (began ?? new Date()) : null,
       memberships: { create: users.map((u) => ({ userId: u.id, status: "staked" as const })) },
     },
   });
@@ -203,6 +210,33 @@ describe("settling from the channel", () => {
     );
     expect(after.get(kept.id)).toBe("passed");
     expect(after.get(idle.id)).toBe("failed");
+
+    await cleanup();
+  });
+
+  /**
+   * The residue left by the previous round, closed. A pact created in an
+   * earlier period but never fully staked has a finished period behind it on
+   * the calendar and nothing behind it in fact -- nobody could have checked
+   * into a week they had not paid for.
+   */
+  it("refuses a pact that never started, rather than failing whoever did stake", async () => {
+    const { users, pact, cleanup } = await fixture(A_FORTNIGHT_AGO(), "funding");
+    // One paid, one never did. This is what `funding` looks like from inside.
+    await prisma.membership.update({
+      where: { pactId_userId: { pactId: pact.id, userId: users[1].id } },
+      data: { status: "invited" },
+    });
+
+    const res = await post(pact.id, {});
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/has not started/);
+
+    expect(await prisma.settlement.count({ where: { pactId: pact.id } })).toBe(0);
+    const paid = await prisma.membership.findUniqueOrThrow({
+      where: { pactId_userId: { pactId: pact.id, userId: users[0].id } },
+    });
+    expect(paid.status).toBe("staked");
 
     await cleanup();
   });
