@@ -87,10 +87,13 @@ export type GithubCalendarProps = {
 /**
  * level0 is bare surface -- nothing drawn. 1-4 are the same `ink` at rising
  * opacity, tuned so four steps stay distinguishable at 12px against both
- * grounds: on light ground (surface #F5F5F5, ink #0A0A0A) these opacities
- * land at roughly 217/163/99/10; on dark ground (surface #171718, ink
- * #FAFAFA) roughly 50/102/164/250. Both sequences are monotonic with
- * growing gaps, which is what four legible steps need.
+ * grounds. This renders inside a `Panel`, whose background is `--panel`, not
+ * `--surface` -- against that (panel #FFFFFF, ink #0A0A0A in light) these
+ * opacities land at roughly 226/169/103/10; against dark (panel #111112, ink
+ * #FAFAFA) roughly 45/99/161/250. Both sequences are monotonic with growing
+ * gaps, which is what four legible steps need, though the level0→1 step is
+ * the tightest of the four in both themes (~28-29 of 255) -- the one most
+ * likely to read as "barely there" at 12px on a real screen.
  */
 const LEVEL_OPACITY: Record<ContributionLevel, number> = {
   0: 0,
@@ -155,6 +158,23 @@ function formatTooltipDate(dateStr: string): string {
   }
 }
 
+/** What the stats line's count actually counts -- states the window rather
+ *  than a fixed "this year", since the range control can make it any window
+ *  at all. "Jun–Aug 2026" when it's one year, the year repeated on each side
+ *  when it isn't (a 3-month window can cross a year boundary). */
+function formatRangeLabel(startDate: string, endDate: string): string {
+  const start = parseDate(startDate);
+  const end = parseDate(endDate);
+  const startMonth = MONTH_NAMES[start.getMonth()];
+  const endMonth = MONTH_NAMES[end.getMonth()];
+  const startYear = start.getFullYear();
+  const endYear = end.getFullYear();
+
+  if (startYear === endYear && startMonth === endMonth) return `${startMonth} ${startYear}`;
+  if (startYear === endYear) return `${startMonth}–${endMonth} ${startYear}`;
+  return `${startMonth} ${startYear} – ${endMonth} ${endYear}`;
+}
+
 function playSound(type: "laser" | "explosion" | "hit" | "victory") {
   // Sound effects disabled
 }
@@ -166,13 +186,23 @@ type APIResponse = {
   contributions: { date: string; count: number; level: number }[];
 };
 
+/** Carries the HTTP status so the caller can tell "no such account" (404)
+ *  apart from the service itself being unreachable -- those read as two
+ *  different facts, not one outage message. */
+class ContributionFetchError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
 async function fetchContributions(username: string): Promise<ContributionData> {
   const res = await fetch(
     `https://github-contributions-api.jogruber.de/v4/${encodeURIComponent(username)}`,
   );
   if (!res.ok) {
-    throw new Error(
+    throw new ContributionFetchError(
       `Could not fetch contributions for "${username}" (${res.status})`,
+      res.status,
     );
   }
   const json: APIResponse = await res.json();
@@ -335,7 +365,10 @@ export const GithubCalendar = memo(function GithubCalendar({
   // ── Fetch state ────────────────────────────────────────────────────────
   const [fetchedData, setFetchedData] = useState<ContributionData | null>(null);
   const [loading, setLoading] = useState(!!username);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  // "not-found" (the account doesn't exist) and "error" (the service didn't
+  // answer) are two different facts, not one outage message -- see the
+  // render branch below.
+  const [fetchError, setFetchError] = useState<"not-found" | "error" | null>(null);
 
   useEffect(() => {
     if (!username) return;
@@ -353,7 +386,9 @@ export const GithubCalendar = memo(function GithubCalendar({
         const d = await fetchContributions(username!);
         if (!cancelled) setFetchedData(d);
       } catch (e) {
-        if (!cancelled) setFetchError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          setFetchError(e instanceof ContributionFetchError && e.status === 404 ? "not-found" : "error");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -395,8 +430,15 @@ export const GithubCalendar = memo(function GithubCalendar({
   );
 
   // ── Stats ──────────────────────────────────────────────────────────────
+  // Windowed to the visible range, not the account's whole fetched history --
+  // `data` holds every contribution the API returned regardless of what's on
+  // screen, and a figure next to a range control is read as scoped to it.
+  // Date strings sort the same lexicographically as chronologically, so a
+  // plain string comparison windows them without re-parsing each one.
   const stats = useMemo(() => {
-    const entries = Object.entries(data);
+    const entries = Object.entries(data).filter(
+      ([d]) => d >= resolvedStart && d <= resolvedEnd,
+    );
     const total = entries.reduce(
       (sum, [, v]) => sum + (v.count ?? (v.level > 0 ? 1 : 0)),
       0,
@@ -426,7 +468,7 @@ export const GithubCalendar = memo(function GithubCalendar({
       return max;
     })();
     return { total, activeDays, maxStreak };
-  }, [data]);
+  }, [data, resolvedStart, resolvedEnd]);
 
   // ── Dimensions ────────────────────────────────────────────────────────
   const step = cellSize + cellGap;
@@ -792,9 +834,12 @@ export const GithubCalendar = memo(function GithubCalendar({
   if (fetchError) {
     // Quiet, not shouted: a member whose calendar won't load still gets a
     // legible settings page, not a red banner over a third party's outage.
+    // A wrong handle and a dead API read as two different facts, not one.
     return (
       <p className={cn("text-[13px] text-grey-on-ground", className)}>
-        GitHub is not answering for {username}.
+        {fetchError === "not-found"
+          ? `No GitHub account found for ${username}.`
+          : `GitHub is not answering for ${username}.`}
       </p>
     );
   }
@@ -1006,7 +1051,7 @@ export const GithubCalendar = memo(function GithubCalendar({
                 <span className="font-semibold text-ink">{username}</span>
                 <span>
                   · {stats.total.toLocaleString()} contribution
-                  {stats.total === 1 ? "" : "s"} on GitHub
+                  {stats.total === 1 ? "" : "s"}, {formatRangeLabel(resolvedStart, resolvedEnd)}
                 </span>
               </a>
             </div>

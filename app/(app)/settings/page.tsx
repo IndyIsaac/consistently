@@ -13,6 +13,19 @@ import { getSession } from "@/lib/session";
 
 export const metadata = { title: "Settings · Consistently" };
 
+// `socials` is a Prisma `Json?` column -- a cast to `Record<string, string>`
+// would be a lie the type checker can't catch. This page is an async Server
+// Component, so a bad value here (a raw DB edit, a future write path that
+// isn't `app/api/me/route.ts`'s zod schema) would throw on `.trim()` and take
+// down the whole page, not just this panel. A runtime check turns that into
+// the panel simply not rendering.
+function readGithubHandle(socials: unknown): string | null {
+  if (!socials || typeof socials !== "object" || Array.isArray(socials)) return null;
+  const value = (socials as Record<string, unknown>).github;
+  if (typeof value !== "string") return null;
+  return value.trim() || null;
+}
+
 export default async function SettingsPage() {
   const { user, pacts, currency } = await getSession();
   // One RPC call, on a page that was already awaiting the database.
@@ -27,8 +40,7 @@ export default async function SettingsPage() {
 
   // Gates the calendar below: no handle, no panel -- not an empty box, not
   // an error. A whitespace-only value counts as none.
-  const githubHandle =
-    (viewer?.socials as Record<string, string> | null)?.github?.trim() || null;
+  const githubHandle = readGithubHandle(viewer?.socials);
 
   return (
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-8 sm:px-8 sm:pt-10">
