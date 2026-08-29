@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { LinkedAccounts } from "@/components/LinkedAccounts";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { ProfileForm } from "@/components/ProfileForm";
+import { GithubActivity } from "@/components/ui/retro-space-shooter-git-hub-calendar";
 import { WalletPanel } from "@/components/WalletPanel";
 import { currentUser } from "@/lib/auth";
 import { readHoldings } from "@/lib/holdings";
@@ -23,6 +24,11 @@ export default async function SettingsPage() {
   // row here instead, the same way holdings above is a second call the mock
   // branch never has to make.
   const viewer = LIVE ? await currentUser() : null;
+
+  // Gates the calendar below: no handle, no panel -- not an empty box, not
+  // an error. A whitespace-only value counts as none.
+  const githubHandle =
+    (viewer?.socials as Record<string, string> | null)?.github?.trim() || null;
 
   return (
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-8 sm:px-8 sm:pt-10">
@@ -66,6 +72,12 @@ export default async function SettingsPage() {
           />
         </div>
       </Panel>
+
+      {githubHandle && (
+        <Panel className="mt-4 max-w-[32rem]">
+          <GithubActivity username={githubHandle} />
+        </Panel>
+      )}
 
       <Panel className="mt-4 max-w-[32rem]">
         <LinkedAccounts walletAddress={user.walletAddress} email={viewer?.email ?? null} />
