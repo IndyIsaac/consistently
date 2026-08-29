@@ -6,6 +6,7 @@ import { FIELD, FieldLabel } from "@/components/Panel";
 import { Select } from "@/components/Select";
 import { Stepper } from "@/components/Stepper";
 import type { RuleConfig } from "@/lib/rules";
+import { upload } from "@/lib/upload";
 
 /* ---------------------------------------------------------------------------
  * The rule, as seven fields.
@@ -19,16 +20,6 @@ import type { RuleConfig } from "@/lib/rules";
  * Colour is money only, per DESIGN.md, so the one validation message is set in
  * ink with a mark beside it rather than in red.
  * ------------------------------------------------------------------------- */
-
-// One uploader, used by both reference slots below.
-async function upload(file: File): Promise<string> {
-  const form = new FormData();
-  form.append("file", file);
-  const res = await fetch("/api/uploads", { method: "POST", body: form });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? "Upload failed.");
-  return body.url as string;
-}
 
 /**
  * One reference photo -- what a good check-in or check-out looks like. Set

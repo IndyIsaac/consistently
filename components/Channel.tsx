@@ -20,6 +20,8 @@ import {
   inviteReply,
   outOfReachVerdict,
   parseSettle,
+  photoUploadRefusalLine,
+  photoUploadSkippedLine,
   settledLine,
   settleFailedLine,
   settleUnknownArgumentReply,
@@ -58,6 +60,7 @@ import {
   requestExemption,
   toggleReaction,
 } from "@/lib/channel-client";
+import { upload } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
@@ -208,9 +211,43 @@ export function Channel({
   }, []);
 
   async function capture(file: File) {
-    // MOCK: a real check-in uploads to blob storage first and posts the URL it
-    // gets back. An object URL is the same string in the same field.
-    const photoUrl = URL.createObjectURL(file);
+    /**
+     * The photo goes to blob storage before anything is recorded, and the URL
+     * that comes back is what is stored.
+     *
+     * This used to be `URL.createObjectURL(file)`, which is a string that
+     * resolves only in the tab that made it. It was written to Postgres and
+     * rendered to the whole crew, so the member who took the photo saw it and
+     * every other member -- and the projector, and that member after one
+     * reload -- saw a broken image. The one photo in the product that the crew
+     * actually judges each other on was the one that never left the device.
+     */
+    let photoUrl: string | null;
+    try {
+      photoUrl = await upload(file);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : "Upload failed.";
+      /**
+       * What to do about a photo that did not go up depends on what the pact
+       * asked for, and only on that.
+       *
+       * On a `photo` pact the photo is the proof. Recording the session anyway
+       * would count a day towards the cadence with nothing behind it for the
+       * crew to look at or dispute -- and money moves on that count. So the
+       * check-in does not happen, and the member is told why while they are
+       * still standing there and can try again.
+       *
+       * On a `self_attest` pact the photo was never the evidence, so losing it
+       * costs the crew nothing and trapping the member would be gratuitous.
+       */
+      if (view.rule.proof === "photo") {
+        say(photoUploadRefusalLine(reason));
+        scrollToFoot();
+        return;
+      }
+      say(photoUploadSkippedLine(reason));
+      photoUrl = null;
+    }
 
     try {
       if (session) {

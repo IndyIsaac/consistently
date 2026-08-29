@@ -5,6 +5,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { TriangleAlert } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FIELD, FieldLabel } from "@/components/Panel";
+import { upload } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { initialsOf } from "@/lib/view";
 
@@ -14,18 +15,6 @@ const SOCIALS = [
   { key: "instagram", label: "Instagram" },
   { key: "telegram", label: "Telegram" },
 ] as const;
-
-// Duplicated from components/RuleEditor.tsx rather than lifted to a shared
-// lib/upload.ts: that file belongs to a different lane, and editing it here
-// would put two lanes' reviews on one diff.
-async function upload(file: File): Promise<string> {
-  const form = new FormData();
-  form.append("file", file);
-  const res = await fetch("/api/uploads", { method: "POST", body: form });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? "Upload failed.");
-  return body.url as string;
-}
 
 /** Name, face, one sentence, and where else you are. No GitHub stats: the crew
  *  is a gym group and a study pair, and a contributions graph tells them
