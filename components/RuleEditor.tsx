@@ -58,7 +58,7 @@ function ReferenceSlot({
       <input
         type="file"
         accept="image/*"
-        className="hidden"
+        className="sr-only"
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
@@ -95,14 +95,18 @@ export function RuleEditor({
 
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Switching sessionType must never leave minDurationMins stale: it's cleared to null
-  // for "checkin" (where it's irrelevant), and given a sane default when switching into
-  // "checkin_checkout" if it isn't already set.
+  // Switching sessionType must never leave stale conditional state behind. minDurationMins
+  // is cleared to null for "checkin" (where it's irrelevant), and given a sane default when
+  // switching into "checkin_checkout" if it isn't already set. checkOutReferenceUrl gets the
+  // same treatment: the check-out slot only renders for "checkin_checkout", so a URL left
+  // over from before a switch to "checkin" would ride into the database invisibly, with no
+  // slot left in the UI to show or clear it.
   const setSessionType = (next: RuleConfig["sessionType"]) => {
     onChange({
       ...value,
       sessionType: next,
       minDurationMins: next === "checkin_checkout" ? (value.minDurationMins ?? 30) : null,
+      checkOutReferenceUrl: next === "checkin_checkout" ? value.checkOutReferenceUrl : undefined,
     });
   };
 
@@ -162,14 +166,23 @@ export function RuleEditor({
           <ReferenceSlot
             label="Check in"
             url={value.checkInReferenceUrl}
-            onUrl={(url) => set("checkInReferenceUrl", url)}
+            // A successful upload here also clears any error left by the check-out slot:
+            // uploadError is one banner shared by both, so it should read as "the last
+            // upload attempt failed", not "the check-in slot has a problem".
+            onUrl={(url) => {
+              setUploadError(null);
+              set("checkInReferenceUrl", url);
+            }}
             onError={setUploadError}
           />
           {value.sessionType === "checkin_checkout" && (
             <ReferenceSlot
               label="Check out"
               url={value.checkOutReferenceUrl}
-              onUrl={(url) => set("checkOutReferenceUrl", url)}
+              onUrl={(url) => {
+                setUploadError(null);
+                set("checkOutReferenceUrl", url);
+              }}
               onError={setUploadError}
             />
           )}
