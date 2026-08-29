@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { FlaskConical, TriangleAlert } from "lucide-react";
+import { FieldLabel } from "@/components/Panel";
+import { Select } from "@/components/Select";
+import { PAYOUT_MINTS } from "@/lib/dflow";
 
 /* ---------------------------------------------------------------------------
  * Putting the money in, from the member's side.
@@ -50,6 +53,11 @@ function bytesToB64(bytes: Uint8Array): string {
 
 type Quote = { kind: "swap" | "transfer"; inAmount: string; venues: string[] };
 
+// `PAYOUT_MINTS` is declared `as const`, so indexing it for a default value
+// narrows to that one element's literal type rather than the union -- this
+// names the union so `setPayout` can hold any of the listed mints.
+type PayoutMint = (typeof PAYOUT_MINTS)[number];
+
 export function StakeSheet({
   pactId,
   stakeLabel,
@@ -66,6 +74,7 @@ export function StakeSheet({
   const { signTransaction } = useSignTransaction();
 
   const [token, setToken] = useState(MINTS[0]);
+  const [payout, setPayout] = useState<PayoutMint>(PAYOUT_MINTS[0]);
   const [priced, setPriced] = useState<{ mint: string; quote: Quote } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +150,7 @@ export function StakeSheet({
         signedTx: bytesToB64(signedTransaction),
         lastValidBlockHeight: built.body.lastValidBlockHeight,
         kind: built.body.kind,
+        payoutMint: payout.mint,
       });
 
       if (done.res.status === 202) {
@@ -211,6 +221,24 @@ export function StakeSheet({
           </>
         )}
       </p>
+
+      <div className="mt-4">
+        <FieldLabel>Paid out in</FieldLabel>
+        <Select
+          className="mt-2"
+          value={payout.mint}
+          onChange={(e) =>
+            setPayout(PAYOUT_MINTS.find((m) => m.mint === e.target.value) ?? PAYOUT_MINTS[0])
+          }
+        >
+          {PAYOUT_MINTS.map((m) => (
+            <option key={m.mint} value={m.mint}>{m.label}</option>
+          ))}
+        </Select>
+        <p className="mt-2 text-[13px] text-grey-on-ground">
+          If the crew forfeits to you, this is what arrives.
+        </p>
+      </div>
 
       {rehearsed && (
         <p
