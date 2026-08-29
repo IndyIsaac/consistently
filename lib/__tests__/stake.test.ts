@@ -14,7 +14,7 @@ import {
   StakeGuardError,
   sizeInputLeg,
 } from "@/lib/stake";
-import { USDC_MINT, WSOL_MINT } from "@/lib/dflow";
+import { PAYOUT_MINTS, USDC_MINT, WSOL_MINT, isSupportedPayoutMint } from "@/lib/dflow";
 
 describe("computeStakeInput", () => {
   it("transfers when the member already holds USDC", () => {
@@ -144,5 +144,20 @@ describe("assertIsOurStakeTx", () => {
     expect(() => assertIsOurStakeTx(new VersionedTransaction(message), ok)).toThrow(
       StakeGuardError,
     );
+  });
+});
+
+describe("payout mints", () => {
+  it("accepts USDC and SOL", () => {
+    expect(isSupportedPayoutMint("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")).toBe(true);
+    expect(isSupportedPayoutMint("So11111111111111111111111111111111111111112")).toBe(true);
+  });
+
+  it("refuses a mint that is not on the list, so settlement cannot route into junk", () => {
+    expect(isSupportedPayoutMint("notamint")).toBe(false);
+  });
+
+  it("lists USDC first — it is the default and the pot's own unit", () => {
+    expect(PAYOUT_MINTS[0].label).toBe("USDC");
   });
 });

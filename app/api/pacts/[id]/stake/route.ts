@@ -34,6 +34,7 @@ const BodySchema = z.discriminatedUnion("step", [
     signedTx: z.string().min(1),
     lastValidBlockHeight: z.number().int().positive(),
     kind: z.enum(["swap", "transfer"]),
+    payoutMint: z.string().min(32).max(44).optional(),
   }),
   z.object({ step: z.literal("reopen") }),
 ]);
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           signedTxB64: body.signedTx,
           lastValidBlockHeight: body.lastValidBlockHeight,
           kind: body.kind,
+          payoutMint: body.payoutMint,
         }),
       );
     }

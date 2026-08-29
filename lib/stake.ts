@@ -7,7 +7,7 @@ import {
 } from "@solana/spl-token";
 import { TransactionMessage } from "@solana/web3.js";
 import { prisma } from "@/lib/db";
-import { buildOrder, getQuote, USDC_MINT, WSOL_MINT } from "@/lib/dflow";
+import { buildOrder, getQuote, isSupportedPayoutMint, USDC_MINT, WSOL_MINT } from "@/lib/dflow";
 import {
   deserializeTx,
   DRY_RUN,
@@ -390,6 +390,9 @@ export async function finaliseStake(params: {
   signedTxB64: string;
   lastValidBlockHeight: number;
   kind: "swap" | "transfer";
+  /** The token this member wants their share paid out in. Optional: an older
+   *  client sends nothing and the column keeps its USDC default. */
+  payoutMint?: string;
 }): Promise<{ signature: string; dryRun?: DryRun }> {
   const pact = await prisma.pact.findUniqueOrThrow({ where: { id: params.pactId } });
   const sponsor = loadSponsor();
@@ -433,7 +436,19 @@ export async function finaliseStake(params: {
 
   await prisma.membership.update({
     where: { pactId_userId: { pactId: params.pactId, userId: user.id } },
-    data: { status: "staked", stakedAt: new Date(), stakeTxSig: signature },
+    data: {
+      status: "staked",
+      stakedAt: new Date(),
+      stakeTxSig: signature,
+      // Validated against the allowlist rather than trusted: settlement builds a real
+      // order per winner, and an unroutable mint is a payout that never arrives.
+      // Written in the same update as the status flip on purpose -- a second write
+      // that can fail on its own would leave a staked member silently holding the
+      // default mint, and nobody finds out until settlement pays the wrong token.
+      ...(params.payoutMint && isSupportedPayoutMint(params.payoutMint)
+        ? { payoutMint: params.payoutMint }
+        : {}),
+    },
   });
 
   await prisma.feedItem.create({
