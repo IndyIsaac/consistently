@@ -635,12 +635,28 @@ git commit -m "feat: the shot you are copying, next to the camera"
   email         String?      @unique
 ```
 
-- [ ] **Step 2: Migrate**
+- [ ] **Step 2: Apply the schema change — with `db push`, NOT `migrate dev`**
+
+> **CORRECTED 2026-08-29 by Ruling 16. The original instruction was destructive.**
+> This plan originally said `npx prisma migrate dev --name user-profile-and-email`.
+> `npx prisma migrate status` reports *"The current database is not managed by Prisma
+> Migrate"* — there is no `prisma/migrations` directory and no `_prisma_migrations`
+> table. On a database with drift and no history, `migrate dev`'s remedy is to offer a
+> **reset**, which would destroy the 9 users and 3 pacts the demo runs on.
 
 ```bash
-npx prisma migrate dev --name user-profile-and-email
+npx prisma db push
 ```
-Expected: migration applies, client regenerates.
+
+`db push` applies the schema without migration history. All four new columns are
+nullable and additive, so it is non-destructive here. **If any Prisma command offers to
+reset, drop, or wipe the database, answer no and stop — report it to the controller.**
+
+Expected: four columns added, client regenerates, existing rows untouched. Confirm with:
+
+```bash
+psql "$DATABASE_URL" -c 'select count(*) from "User";'   # must still be 9
+```
 
 - [ ] **Step 3: Verify and commit**
 
