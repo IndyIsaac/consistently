@@ -40,8 +40,17 @@ const chain = vi.hoisted(() => ({
   vaultPost: null as bigint | null,
   /** A USDC row belonging to somebody who is not this vault. */
   strangerPost: null as bigint | null,
-  /** Emit a USDC row with no `owner`, as a pre-1.8 node would. */
-  ownerless: false,
+  /** Emit a USDC row that does not name its owner. `"undefined"` is how a
+   *  pre-1.8 node omitted the field; `"null"` is the same absence spelled the
+   *  other way, and a guard that only knows one spelling knows neither. */
+  ownerless: null as null | "undefined" | "null",
+  /** Which balance array the node does not send at all. A missing array is not
+   *  an empty one: `[]` says the transaction touched no token accounts, absent
+   *  says this node is not telling us which it touched. */
+  omitBalances: null as null | "pre" | "post",
+  /** Send the amounts in a form `BigInt` refuses, as a node with its own idea
+   *  of the wire format would. */
+  unparseableAmount: false,
   /** How many lookups answer "not here yet" before the transaction appears. */
   notFoundFor: 0,
   /** Whether the lookup errors outright rather than coming back empty. */
@@ -60,13 +69,13 @@ const db = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ prisma: db }));
 
 /** One row of `pre`/`postTokenBalances`, as the RPC returns them. */
-function usdcRow(owner: string | undefined, amount: bigint, accountIndex: number) {
+function usdcRow(owner: string | undefined | null, amount: bigint, accountIndex: number) {
   return {
     accountIndex,
     mint: USDC_MINT,
     owner,
     uiTokenAmount: {
-      amount: amount.toString(),
+      amount: chain.unparseableAmount ? "1.5" : amount.toString(),
       decimals: 6,
       uiAmount: Number(amount) / 1e6,
       uiAmountString: (Number(amount) / 1e6).toString(),
@@ -110,10 +119,17 @@ vi.mock("@/lib/solana", async (importOriginal) => {
             ...(chain.strangerPost === null
               ? []
               : [usdcRow(stranger.publicKey.toBase58(), chain.strangerPost, 2)]),
-            ...(chain.ownerless ? [usdcRow(undefined, 1n, 3)] : []),
+            ...(chain.ownerless
+              ? [usdcRow(chain.ownerless === "null" ? null : undefined, 1n, 3)]
+              : []),
           ];
 
-          return { meta: { preTokenBalances, postTokenBalances } };
+          return {
+            meta: {
+              preTokenBalances: chain.omitBalances === "pre" ? null : preTokenBalances,
+              postTokenBalances: chain.omitBalances === "post" ? null : postTokenBalances,
+            },
+          };
         },
       }) as unknown as ReturnType<typeof actual.getConnection>,
   };
@@ -320,7 +336,9 @@ describe("finaliseStake, on what actually arrived", () => {
     chain.vaultPre = null;
     chain.vaultPost = null;
     chain.strangerPost = null;
-    chain.ownerless = false;
+    chain.ownerless = null;
+    chain.omitBalances = null;
+    chain.unparseableAmount = false;
     chain.notFoundFor = 0;
     chain.lookupThrows = false;
     chain.lookupCalls = 0;
@@ -441,11 +459,75 @@ describe("finaliseStake, on what actually arrived", () => {
     // `owner` is optional on the RPC type. Missing it, every row misses, the
     // delta reads zero, and an honest staker is told their money never came.
     // Refusing to answer is the only honest thing left.
-    chain.ownerless = true;
+    chain.ownerless = "undefined";
     chain.vaultPost = STAKE;
 
     await expect(stake(handBuiltTransfer(STAKE))).rejects.toMatchObject({
       name: "SubmitError",
+    });
+    expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the node does not say what the vault held before", async () => {
+    // The one this round exists for. Reading a missing `pre` as "the vault held
+    // nothing" hands this one-unit transfer the vault's entire post balance --
+    // four other members' stakes -- and records it as a full stake. That is the
+    // original bug, one function deeper, reached by a node being terse rather
+    // than by a member being clever.
+    chain.omitBalances = "pre";
+    chain.vaultPre = STAKE * 4n;
+    chain.vaultPost = STAKE * 4n + 1n;
+
+    await expect(stake(handBuiltTransfer(1n))).rejects.toMatchObject({
+      name: "SubmitError",
+      signature: "sig-under-test",
+    });
+    expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the node does not say what the vault held after", async () => {
+    // The mirror, and it fails in the other direction: an absent `post` read as
+    // empty makes an honest full stake look like nothing arrived, and the member
+    // is told they are not staked in a sentence that is simply false. "We could
+    // not read it" is a different answer from "you sent nothing", and only one
+    // of them is true here.
+    chain.vaultPre = null;
+    chain.vaultPost = STAKE;
+    chain.omitBalances = "post";
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toMatchObject({
+      name: "SubmitError",
+      signature: "sig-under-test",
+    });
+    expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a node spells the missing owner `null` rather than omitting it", async () => {
+    // The delta here reads correctly by luck -- the unattributable row is not
+    // the vault's. That is the point: a rule that refuses only when it can tell
+    // which row it lost is not a rule. Any USDC row we cannot attribute might
+    // have been the vault's, and `owner === undefined` cannot see this one.
+    chain.ownerless = "null";
+    chain.vaultPost = STAKE;
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toMatchObject({
+      name: "SubmitError",
+    });
+    expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the amount comes back in a form it cannot parse", async () => {
+    // Everything past the broadcast turns a bare Error into HTTP 500 and "That
+    // did not go through", and a member told that stakes a second time and pays
+    // twice. An amount we cannot read is one more way of not having established
+    // one, so it leaves by the same door as the rest instead of throwing out
+    // through a contract that says `bigint | null`.
+    chain.unparseableAmount = true;
+    chain.vaultPost = STAKE;
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toMatchObject({
+      name: "SubmitError",
+      signature: "sig-under-test",
     });
     expect(db.membership.update).not.toHaveBeenCalled();
   });

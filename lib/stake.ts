@@ -427,9 +427,18 @@ async function deliveredToVault(params: {
     let meta;
     try {
       const confirmed = await connection.getTransaction(params.signature, {
-        // `getTransaction` defaults to `finalized` -- another half-minute of a
-        // member watching a spinner for no more certainty than the broadcast
-        // was already confirmed at.
+        // `getTransaction` defaults to `finalized`, and this is deliberately
+        // not that -- but not because finalization would buy nothing. It would:
+        // a transaction that confirms and is then forked away never finalizes,
+        // so the read comes back empty and the stake is refused rather than
+        // recorded against money that un-arrived.
+        //
+        // The reason is that this commitment is welded to the retry budget
+        // below. Four attempts at 700ms is a couple of seconds; finalization is
+        // the better part of a minute. Raising one without raising the other
+        // does not buy certainty, it exhausts the attempts and refuses every
+        // honest stake there is. Whoever wants `finalized` has to buy the wait
+        // first, and should price what that spinner costs before doing so.
         commitment: "confirmed",
         maxSupportedTransactionVersion: 0,
       });
@@ -441,22 +450,52 @@ async function deliveredToVault(params: {
     }
 
     if (meta) {
-      const rows = [...(meta.preTokenBalances ?? []), ...(meta.postTokenBalances ?? [])];
+      const { preTokenBalances: pre, postTokenBalances: post } = meta;
+
+      // A missing array is not an empty one, and the difference is the whole
+      // bug. `[]` says this transaction touched no token accounts; nullish says
+      // the node is not telling us which it touched. Coalescing the two reads
+      // an absent `pre` as "the vault held nothing before" and attributes the
+      // vault's entire post balance -- four other members' stakes -- to a
+      // transfer of one atomic unit. That is the original vulnerability reached
+      // by a node being terse instead of by a member being clever.
+      //
+      // A crew's first stake is untouched by this: a vault with no USDC account
+      // yet has no row to report, which the RPC sends as an empty array and not
+      // as an absent one.
+      if (!pre || !post) return null;
 
       // `owner` is optional on the RPC type because nodes before 1.8 omitted
-      // it. If one ever does, no row matches, the delta reads zero, and every
-      // honest staker is told their money did not arrive. Refuse to answer
-      // instead of answering wrongly.
-      if (rows.some((row) => row.mint === USDC_MINT && row.owner === undefined)) return null;
+      // it, and `null` is that same absence spelled the other way. If a row we
+      // cannot attribute is the vault's own, no row matches, the delta reads
+      // zero, and an honest staker is told their money did not arrive. We
+      // cannot know which row we lost, so any lost row refuses the whole
+      // answer: a guard that only fires when it can tell is not a guard.
+      if ([...pre, ...post].some((row) => row.mint === USDC_MINT && row.owner == null)) {
+        return null;
+      }
 
-      const held = (balances: TokenBalance[] | null | undefined): bigint =>
-        (balances ?? [])
+      const held = (balances: TokenBalance[]): bigint =>
+        balances
           .filter((row) => row.mint === USDC_MINT && row.owner === params.vaultAddress)
           .reduce((sum, row) => sum + BigInt(row.uiTokenAmount.amount), 0n);
 
-      // No pre-row means the vault had no USDC account until this transaction
-      // made one, which is a real zero and the ordinary case for a first stake.
-      return held(meta.postTokenBalances) - held(meta.preTokenBalances);
+      try {
+        // No vault row in `pre` means the vault had no USDC account until this
+        // transaction made one, which is a real zero and the ordinary case for
+        // a crew's first stake.
+        return held(post) - held(pre);
+      } catch {
+        // `uiTokenAmount.amount` is typed as a decimal string and `BigInt`
+        // throws on anything else. That throw would leave here as a bare Error,
+        // and every bare Error past the broadcast reaches the member as "That
+        // did not go through" -- so they stake again and pay twice, which is a
+        // worse outcome than the one this function exists to prevent. An amount
+        // we cannot read is one more way of not having established one, so it
+        // leaves by the same door as the rest and this function keeps the
+        // `bigint | null` contract its name is written on.
+        return null;
+      }
     }
 
     if (attempt < ATTRIBUTION_ATTEMPTS - 1) await wait(ATTRIBUTION_RETRY_MS);
@@ -540,6 +579,16 @@ export async function finaliseStake(params: {
      * membership unwritten, so both say so in the log with the signature and
      * the pact attached. Money that moved and left no record anywhere is money
      * nobody can reconcile afterwards.
+     *
+     * A log is a record and not a route, though, and the difference is worth
+     * naming rather than leaving for whoever reads this next. An honest stake
+     * that lands and cannot be attributed ends here: the USDC is in the vault,
+     * the member is not in the pact, and there is no operator path in this
+     * build to credit them or send it back. The route hands the signature to
+     * the client so a person can at least be shown what happened, which is not
+     * the same as it being fixable. That gap is a residual of this task and is
+     * written up as one; it needs a table and a tool, neither of which lives
+     * in this file.
      */
     signature = await submitAndConfirm(tx, params.lastValidBlockHeight);
 
