@@ -1,4 +1,4 @@
-import { PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { PublicKey, VersionedTransaction, type TokenBalance } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   createTransferCheckedInstruction,
@@ -8,6 +8,8 @@ import {
 import { TransactionMessage } from "@solana/web3.js";
 import { prisma } from "@/lib/db";
 import { buildOrder, getQuote, isSupportedPayoutMint, USDC_MINT, WSOL_MINT } from "@/lib/dflow";
+import { fromUsdcAtomic } from "@/lib/fx";
+import { formatMoney } from "@/lib/money";
 import {
   deserializeTx,
   DRY_RUN,
@@ -109,9 +111,10 @@ export class StakeGuardError extends Error {
  * What it checks is shape, and never size. Nothing here reads how much USDC
  * the transaction moves: the swap path's output is not knowable from the bytes
  * at all, and address-table lookups mean even the transfer path's accounts are
- * not all present to be decoded. The amount is therefore established after the
- * fact, from the vault's own balance -- see `finaliseStake`. Until the money is
- * counted there, a transaction passing this function is only the right shape.
+ * not all present to be decoded. The amount is established after the fact, from
+ * the confirmed transaction's own token-balance record -- see `deliveredToVault`
+ * below. Until the money is counted there, a transaction passing this function
+ * is only the right shape, and the right shape is not a stake.
  *
  * What it cannot stop: somebody getting the sponsor to pay for a *different*
  * DFlow swap that still delivers into this vault. That is a donation to the
@@ -384,24 +387,82 @@ export async function affordability(params: {
   }
 }
 
+/** A node that has just confirmed a transaction may still be a beat behind on
+ *  serving it back. Worth asking twice before calling a landed stake unreadable. */
+const ATTRIBUTION_ATTEMPTS = 4;
+const ATTRIBUTION_RETRY_MS = 700;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * What the vault holds in USDC, or null when it has no account for the mint.
+ * What this transaction, and only this transaction, put into the vault.
  *
- * The difference is worth keeping. Before a broadcast, a vault that has never
- * taken a stake genuinely holds nothing, and a missing account is that zero.
- * After one, the account exists -- both stake paths create it on the way in --
- * so a missing reading is the RPC failing rather than an empty vault, and
- * flattening it to zero there would tell a member their money never arrived
- * when it did.
+ * The obvious version of this check reads the vault's balance either side of
+ * the broadcast and takes the rise. It is wrong, and cheaply so: any USDC
+ * landing in that window counts, including the attacker's own. Two seats in a
+ * crew, two calls carrying one atomic unit each, one full stake sent from an
+ * outside wallet timed to confirm inside both windows -- both deltas read over
+ * the line and the crew pays out two principals against one. No crew mate has
+ * to be staking, and the timing is the attacker's to choose.
+ *
+ * A confirmed transaction carries its own answer instead. `preTokenBalances`
+ * and `postTokenBalances` are recorded per account for that signature, they
+ * cover accounts loaded through address-lookup tables, and each row names its
+ * `owner` and `mint`. So the vault's delta is attributable to this transaction
+ * by evidence rather than by assumption, and money arriving alongside it is
+ * somebody else's row.
+ *
+ * Returns null for "could not establish", never zero. Zero is a fact about the
+ * transaction; null is the absence of one. Collapsing the two is precisely how
+ * the first version of this check failed open, so every null here ends in a
+ * refusal to record the stake rather than in a shrug.
  */
-async function vaultUsdcBalance(vaultAddress: string): Promise<bigint | null> {
-  const ata = getAssociatedTokenAddressSync(new PublicKey(USDC_MINT), new PublicKey(vaultAddress));
-  try {
-    const { value } = await getConnection().getTokenAccountBalance(ata);
-    return BigInt(value.amount);
-  } catch {
-    return null;
+async function deliveredToVault(params: {
+  signature: string;
+  vaultAddress: string;
+}): Promise<bigint | null> {
+  const connection = getConnection();
+
+  for (let attempt = 0; attempt < ATTRIBUTION_ATTEMPTS; attempt++) {
+    let meta;
+    try {
+      const confirmed = await connection.getTransaction(params.signature, {
+        // `getTransaction` defaults to `finalized` -- another half-minute of a
+        // member watching a spinner for no more certainty than the broadcast
+        // was already confirmed at.
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      meta = confirmed?.meta;
+    } catch {
+      // The read failed rather than came back empty. Retrying a node that is
+      // erroring is not the same as waiting for one that is behind, so stop.
+      return null;
+    }
+
+    if (meta) {
+      const rows = [...(meta.preTokenBalances ?? []), ...(meta.postTokenBalances ?? [])];
+
+      // `owner` is optional on the RPC type because nodes before 1.8 omitted
+      // it. If one ever does, no row matches, the delta reads zero, and every
+      // honest staker is told their money did not arrive. Refuse to answer
+      // instead of answering wrongly.
+      if (rows.some((row) => row.mint === USDC_MINT && row.owner === undefined)) return null;
+
+      const held = (balances: TokenBalance[] | null | undefined): bigint =>
+        (balances ?? [])
+          .filter((row) => row.mint === USDC_MINT && row.owner === params.vaultAddress)
+          .reduce((sum, row) => sum + BigInt(row.uiTokenAmount.amount), 0n);
+
+      // No pre-row means the vault had no USDC account until this transaction
+      // made one, which is a real zero and the ordinary case for a first stake.
+      return held(meta.postTokenBalances) - held(meta.preTokenBalances);
+    }
+
+    if (attempt < ATTRIBUTION_ATTEMPTS - 1) await wait(ATTRIBUTION_RETRY_MS);
   }
+
+  return null;
 }
 
 /**
@@ -444,10 +505,11 @@ export async function finaliseStake(params: {
    * signature recorded is deliberately not a signature.
    *
    * The delivery check below is skipped here, deliberately, and not because
-   * nobody got round to it. Nothing is broadcast in this mode, so the vault's
-   * balance cannot rise, and a check reading it would refuse every rehearsal
-   * for the one reason a rehearsal is not asking about. A rehearsal is not
-   * evidence that money moved and has never claimed to be.
+   * nobody got round to it. Nothing is broadcast in this mode, so there is no
+   * confirmed transaction to attribute anything to, and a check looking for one
+   * would refuse every rehearsal for the one reason a rehearsal is not asking
+   * about. A rehearsal is not evidence that money moved and has never claimed
+   * to be.
    */
   let dryRun: DryRun | undefined;
   let signature: string;
@@ -462,47 +524,64 @@ export async function finaliseStake(params: {
     signature = `${DRY_RUN_SIGNATURE_PREFIX}${Date.now()}`;
   } else {
     /**
-     * Count the money.
+     * Count the money, and count only this member's.
      *
      * The guard has checked the transaction's shape and cannot check its size,
-     * so the only honest measure of what a member put in is the vault itself,
-     * read either side of the broadcast. The *rise* is what counts, not the
-     * total: a vault holding four other people's stakes would clear an
-     * absolute threshold on a transaction that delivered nothing.
+     * so the amount is established here, from what the confirmed transaction
+     * itself records moving into the vault. This is the comparison that decides
+     * whether the membership is written: settlement pays every winner a whole
+     * `stakeUsdc` principal back out of the vault's actual balance, so a member
+     * recorded `staked` on one atomic unit is a member paid a whole stake out
+     * of the rest of the crew's money, and the shortfall lands on whoever the
+     * payout loop reaches last. Nobody chose that, which is the part that makes
+     * it unacceptable.
      *
-     * This is the comparison that decides whether the membership is written.
-     * Settlement pays every winner a whole `stakeUsdc` principal back out of
-     * the vault's actual balance, so a member recorded `staked` on one atomic
-     * unit is a member paid a whole stake out of the rest of the crew's money,
-     * and the shortfall lands on whoever the payout loop reaches last. Nobody
-     * chose that, which is the part that makes it unacceptable.
-     *
-     * What it does not close: another member's stake confirming inside this
-     * window is counted as this one's, which would mask an under-delivery.
-     * Shutting that needs a lock on the vault held across the broadcast, which
-     * this build does not have. Reported rather than closed, and the custody
-     * document is where it belongs.
+     * Both refusals below leave a confirmed transaction on chain with the
+     * membership unwritten, so both say so in the log with the signature and
+     * the pact attached. Money that moved and left no record anywhere is money
+     * nobody can reconcile afterwards.
      */
-    const before = (await vaultUsdcBalance(pact.vaultAddress)) ?? 0n;
     signature = await submitAndConfirm(tx, params.lastValidBlockHeight);
-    const after = await vaultUsdcBalance(pact.vaultAddress);
 
-    if (after === null) {
+    const delivered = await deliveredToVault({
+      signature,
+      vaultAddress: pact.vaultAddress,
+    });
+
+    if (delivered === null) {
       /**
-       * Not a refusal, and not the member's fault: the transaction confirmed
-       * and only the reading of it failed. `SubmitError` rather than anything
-       * else because the route answers that one with the signature and a "do
-       * not retry" -- and a member told this did not go through is a member who
-       * stakes a second time, which is the one outcome worse than not knowing.
+       * Fail closed. The transaction confirmed and only the attribution of it
+       * failed, so the one thing not to do is guess -- the first version of
+       * this check guessed zero on an unreadable balance and that guess was
+       * the whole vulnerability.
+       *
+       * `SubmitError` rather than anything else because the route answers that
+       * one with the signature and a "do not retry", and a member told this did
+       * not go through is a member who stakes a second time, which is the one
+       * outcome worse than not knowing.
        */
-      throw new SubmitError("Confirmed, but the vault could not be read.", signature);
+      console.error(
+        `stake unattributed: signature=${signature} pact=${params.pactId} wallet=${params.userWallet}`,
+      );
+      throw new SubmitError("Confirmed, but we could not read what it delivered.", signature);
     }
 
-    const delivered = after - before;
     if (delivered < pact.stakeUsdc) {
+      console.error(
+        `stake short: signature=${signature} pact=${params.pactId} wallet=${params.userWallet} ` +
+          `delivered=${delivered} required=${pact.stakeUsdc}`,
+      );
+      // In the crew's own currency, because that is the number they agreed. A
+      // stake of one atomic unit reads as nothing, which is what it is.
+      // `formatMoney` is unsigned, which costs nothing here: a negative delta
+      // would mean this transaction took USDC *out* of the vault, and that
+      // needs the vault's signature, which a stake never carries.
+      const inCrewMoney = (atomic: bigint) =>
+        formatMoney(fromUsdcAtomic(atomic, pact.fxRateToUsd.toNumber()), pact.stakeCurrency);
+
       throw new StakeGuardError(
-        `That transaction put ${delivered} into the vault and the stake is ${pact.stakeUsdc}. ` +
-          `You are not staked. What did arrive is the crew's now.`,
+        `That transaction put ${inCrewMoney(delivered)} into the vault and the stake is ` +
+          `${inCrewMoney(pact.stakeUsdc)}. You are not staked. What did arrive is the crew's now.`,
       );
     }
   }

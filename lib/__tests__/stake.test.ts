@@ -31,14 +31,23 @@ import { PAYOUT_MINTS, USDC_MINT, WSOL_MINT, isSupportedPayoutMint } from "@/lib
 const chain = vi.hoisted(() => ({
   /** Set in `beforeEach`: the keypair `finaliseStake` co-signs with. */
   sponsor: null as Keypair | null,
-  /** The vault's USDC balance; null when it holds no account for the mint. */
-  vaultBalance: null as bigint | null,
-  /** What the broadcast delivers into the vault, which is the whole point. */
-  delivers: 0n,
   /** Rehearsal mode. A getter on the export, so a test can flip it per case. */
   dryRun: false,
-  /** When set, the vault stops being readable the moment the broadcast lands. */
-  blindAfterBroadcast: false,
+  /** The vault whose rows in the confirmed transaction count as the stake. */
+  vaultAddress: "",
+  /** The vault's USDC row before and after; null means it had no such row. */
+  vaultPre: null as bigint | null,
+  vaultPost: null as bigint | null,
+  /** A USDC row belonging to somebody who is not this vault. */
+  strangerPost: null as bigint | null,
+  /** Emit a USDC row with no `owner`, as a pre-1.8 node would. */
+  ownerless: false,
+  /** How many lookups answer "not here yet" before the transaction appears. */
+  notFoundFor: 0,
+  /** Whether the lookup errors outright rather than coming back empty. */
+  lookupThrows: false,
+  /** How many times the transaction was asked for. */
+  lookupCalls: 0,
 }));
 
 const db = vi.hoisted(() => ({
@@ -49,6 +58,21 @@ const db = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: db }));
+
+/** One row of `pre`/`postTokenBalances`, as the RPC returns them. */
+function usdcRow(owner: string | undefined, amount: bigint, accountIndex: number) {
+  return {
+    accountIndex,
+    mint: USDC_MINT,
+    owner,
+    uiTokenAmount: {
+      amount: amount.toString(),
+      decimals: 6,
+      uiAmount: Number(amount) / 1e6,
+      uiAmountString: (Number(amount) / 1e6).toString(),
+    },
+  };
+}
 
 vi.mock("@/lib/solana", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/solana")>();
@@ -67,19 +91,29 @@ vi.mock("@/lib/solana", async (importOriginal) => {
       unitsConsumed: 1,
       logs: [],
     }),
-    submitAndConfirm: async () => {
-      chain.vaultBalance = chain.blindAfterBroadcast
-        ? null
-        : (chain.vaultBalance ?? 0n) + chain.delivers;
-      return "sig-under-test";
-    },
+    submitAndConfirm: async () => "sig-under-test",
     getConnection: () =>
       ({
-        getTokenAccountBalance: async () => {
-          // A vault that has never held USDC has no account for it, and the RPC
-          // says so by failing rather than by answering zero.
-          if (chain.vaultBalance === null) throw new Error("could not find account");
-          return { value: { amount: chain.vaultBalance.toString() } };
+        getTransaction: async () => {
+          chain.lookupCalls += 1;
+          if (chain.lookupThrows) throw new Error("rpc refused");
+          // A node that has just confirmed a transaction can still be a beat
+          // behind on serving it back, which reads as "not here" and not as an
+          // error.
+          if (chain.lookupCalls <= chain.notFoundFor) return null;
+
+          const preTokenBalances = chain.vaultPre === null
+            ? []
+            : [usdcRow(chain.vaultAddress, chain.vaultPre, 1)];
+          const postTokenBalances = [
+            ...(chain.vaultPost === null ? [] : [usdcRow(chain.vaultAddress, chain.vaultPost, 1)]),
+            ...(chain.strangerPost === null
+              ? []
+              : [usdcRow(stranger.publicKey.toBase58(), chain.strangerPost, 2)]),
+            ...(chain.ownerless ? [usdcRow(undefined, 1n, 3)] : []),
+          ];
+
+          return { meta: { preTokenBalances, postTokenBalances } };
         },
       }) as unknown as ReturnType<typeof actual.getConnection>,
   };
@@ -142,6 +176,8 @@ describe("sizeInputLeg", () => {
 const sponsor = Keypair.generate();
 const user = Keypair.generate();
 const vault = Keypair.generate();
+/** Somebody who is not this vault, for proving whose rows get counted. */
+const stranger = Keypair.generate();
 
 /** A stand-in with the shape a real DFlow order has -- verified against one. */
 function fakeOrder(opts: {
@@ -279,15 +315,22 @@ describe("finaliseStake, on what actually arrived", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     chain.sponsor = sponsor;
-    chain.vaultBalance = null;
-    chain.delivers = 0n;
     chain.dryRun = false;
-    chain.blindAfterBroadcast = false;
+    chain.vaultAddress = vault.publicKey.toBase58();
+    chain.vaultPre = null;
+    chain.vaultPost = null;
+    chain.strangerPost = null;
+    chain.ownerless = false;
+    chain.notFoundFor = 0;
+    chain.lookupThrows = false;
+    chain.lookupCalls = 0;
 
     db.pact.findUniqueOrThrow.mockResolvedValue({
       id: "p1",
       stakeUsdc: STAKE,
       vaultAddress: vault.publicKey.toBase58(),
+      stakeCurrency: "THB",
+      fxRateToUsd: { toNumber: () => 0.0285 },
     });
     db.user.findUniqueOrThrow.mockResolvedValue({ id: "u1", displayName: "Dave" });
     db.membership.findMany.mockResolvedValue([]);
@@ -295,7 +338,7 @@ describe("finaliseStake, on what actually arrived", () => {
 
   it("refuses a structurally perfect transaction carrying one atomic unit", async () => {
     const tx = handBuiltTransfer(1n);
-    chain.delivers = 1n;
+    chain.vaultPost = 1n;
 
     // The structural guard is satisfied -- sponsor pays, the vault is in the
     // accounts, both programs are on the transfer allowlist. Only the size of
@@ -312,40 +355,66 @@ describe("finaliseStake, on what actually arrived", () => {
   });
 
   it("leaves the membership unwritten when the stake did not arrive", async () => {
-    chain.delivers = 1n;
+    chain.vaultPost = 1n;
     await expect(stake(handBuiltTransfer(1n))).rejects.toThrow();
     expect(db.membership.update).not.toHaveBeenCalled();
   });
 
+  it("tells the member the shortfall in the crew's own currency", async () => {
+    chain.vaultPost = 1n;
+    // A stake of one atomic unit is ฿0.000035 and reads as nothing, which is
+    // what it is. Raw atomic units would read as a number and not as money.
+    await expect(stake(handBuiltTransfer(1n))).rejects.toThrow(
+      /put ฿0 into the vault and the stake is ฿1,000/,
+    );
+  });
+
   it("takes the first stake into a vault that has never held USDC", async () => {
-    chain.delivers = STAKE;
+    // No pre-row at all: the account did not exist until this transaction made
+    // it. A real zero, and the ordinary case for a crew's first stake.
+    chain.vaultPre = null;
+    chain.vaultPost = STAKE;
+
     await expect(stake(handBuiltTransfer(STAKE))).resolves.toMatchObject({
       signature: "sig-under-test",
     });
     expect(db.membership.update).toHaveBeenCalledOnce();
   });
 
-  it("does not apply the check to a rehearsal, which broadcasts nothing", async () => {
-    // Deliberate, and asserted so it stays deliberate. Under STAKE_DRY_RUN the
-    // transaction is simulated rather than sent, so the vault's balance cannot
-    // rise and a delivery check would refuse every rehearsal there has ever
-    // been. Anyone tempted to "fix" the skip has to delete this test first.
-    chain.dryRun = true;
-    chain.delivers = 0n;
+  it("counts the rise and not the total, so a funded vault is no free pass", async () => {
+    // Four members have already staked. The vault is full of money that is not
+    // this member's, and reading the balance alone would call that a stake.
+    chain.vaultPre = STAKE * 4n;
+    chain.vaultPost = STAKE * 4n + 1n;
 
-    await expect(stake(handBuiltTransfer(STAKE))).resolves.toMatchObject({
-      dryRun: { simulated: true, ok: true },
-    });
-    expect(db.membership.update).toHaveBeenCalledOnce();
+    await expect(stake(handBuiltTransfer(1n))).rejects.toThrow(StakeGuardError);
+    expect(db.membership.update).not.toHaveBeenCalled();
   });
 
-  it("does not call an unreadable vault a refusal", async () => {
-    // The transaction confirmed and only the reading failed. Answering the
-    // member "that did not go through" invites them to stake a second time, so
-    // this goes back as the class the route already returns with the signature
-    // attached and an instruction not to retry.
-    chain.blindAfterBroadcast = true;
-    chain.delivers = STAKE;
+  it("does not count USDC that moved in the same transaction to somebody else", async () => {
+    // The reason attribution is per signature rather than per window: money
+    // landing alongside this member's is somebody else's row, and a check that
+    // could not tell them apart would let one full stake cover several seats.
+    chain.vaultPost = 1n;
+    chain.strangerPost = STAKE * 10n;
+
+    await expect(stake(handBuiltTransfer(1n))).rejects.toThrow(StakeGuardError);
+    expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("asks again when the node does not have the transaction yet", async () => {
+    chain.notFoundFor = 1;
+    chain.vaultPost = STAKE;
+
+    await expect(stake(handBuiltTransfer(STAKE))).resolves.toMatchObject({
+      signature: "sig-under-test",
+    });
+    expect(chain.lookupCalls).toBe(2);
+  });
+
+  it("fails closed when the transaction never becomes available", async () => {
+    chain.notFoundFor = Number.MAX_SAFE_INTEGER;
+    chain.vaultPost = STAKE;
 
     await expect(stake(handBuiltTransfer(STAKE))).rejects.toMatchObject({
       name: "SubmitError",
@@ -354,13 +423,45 @@ describe("finaliseStake, on what actually arrived", () => {
     expect(db.membership.update).not.toHaveBeenCalled();
   });
 
-  it("measures the rise and not the total, so a funded vault is no free pass", async () => {
-    // Four members have already staked. The vault is full of money that is not
-    // this member's, and reading the balance alone would call that a stake.
-    chain.vaultBalance = STAKE * 4n;
-    chain.delivers = 1n;
+  it("fails closed when the lookup errors rather than coming back empty", async () => {
+    // The first version of this check read a balance, could not tell a failed
+    // read from an empty account, and called it zero -- which on a funded vault
+    // waved through a one-unit stake. Nothing here is allowed to guess.
+    chain.lookupThrows = true;
+    chain.vaultPost = STAKE;
 
-    await expect(stake(handBuiltTransfer(1n))).rejects.toThrow(StakeGuardError);
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toMatchObject({
+      name: "SubmitError",
+      signature: "sig-under-test",
+    });
     expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a node omits the owner it would have to attribute by", async () => {
+    // `owner` is optional on the RPC type. Missing it, every row misses, the
+    // delta reads zero, and an honest staker is told their money never came.
+    // Refusing to answer is the only honest thing left.
+    chain.ownerless = true;
+    chain.vaultPost = STAKE;
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toMatchObject({
+      name: "SubmitError",
+    });
+    expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("does not apply the check to a rehearsal, which broadcasts nothing", async () => {
+    // Deliberate, and asserted so it stays deliberate. Under STAKE_DRY_RUN the
+    // transaction is simulated rather than sent, so there is no confirmed
+    // transaction to attribute and a delivery check would refuse every
+    // rehearsal there has ever been. Anyone tempted to "fix" the skip has to
+    // delete this test first.
+    chain.dryRun = true;
+
+    await expect(stake(handBuiltTransfer(STAKE))).resolves.toMatchObject({
+      dryRun: { simulated: true, ok: true },
+    });
+    expect(db.membership.update).toHaveBeenCalledOnce();
+    expect(chain.lookupCalls).toBe(0);
   });
 });
