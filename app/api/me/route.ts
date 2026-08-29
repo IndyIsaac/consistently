@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { privyIdFromRequest, PRIVY_CONFIGURED } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -69,6 +70,14 @@ export async function POST(req: NextRequest) {
  * the same reason it is absent from the POST's update branch above -- it is
  * write-on-create only.
  *
+ * bio and avatarUrl are also `.nullable()`, which displayName and email are
+ * not: those two are things you clear back to nothing (an empty bio reads as
+ * "no bio", not as the literal empty string), and Prisma's own vocabulary for
+ * a `String?` column already has a value for that -- null. JSON.stringify
+ * drops `undefined` keys entirely, so a client sending `undefined` to mean
+ * "clear this" would instead omit the key and leave the old value in place;
+ * null is the only value that reaches Prisma and means what the client wants.
+ *
  * email carries the same @unique collision risk as walletAddress above, and
  * for the same reason: two sign-ins recovering into the same address would
  * let one hand its stakes to the other. The try/catch below answers it the
@@ -77,8 +86,8 @@ export async function POST(req: NextRequest) {
 
 const PatchSchema = z.object({
   displayName: z.string().min(1).max(40).optional(),
-  bio: z.string().max(280).optional(),
-  avatarUrl: z.string().url().optional(),
+  bio: z.string().max(280).nullable().optional(),
+  avatarUrl: z.string().url().nullable().optional(),
   socials: z.record(z.string(), z.string().max(200)).optional(),
   email: z.string().email().optional(),
 });
@@ -106,12 +115,19 @@ export async function PATCH(req: NextRequest) {
       socials: user.socials,
       email: user.email,
     });
-  } catch {
-    // The only expected failure is the @unique collision on email: somebody
-    // is linking an email already claimed by another sign-in.
-    return NextResponse.json(
-      { error: "That email is already linked to another account." },
-      { status: 409 },
-    );
+  } catch (err) {
+    // P2002 is Prisma's unique-constraint violation, and email is the only
+    // column here that carries one -- so it is the only failure this checks
+    // for by name. Anything else (a dropped connection, a row that vanished
+    // mid-request) is a real failure and is reported as one, not relabeled as
+    // an email collision it was never about.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return NextResponse.json(
+        { error: "That email is already linked to another account." },
+        { status: 409 },
+      );
+    }
+    console.error("PATCH /api/me failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Could not save." }, { status: 500 });
   }
 }

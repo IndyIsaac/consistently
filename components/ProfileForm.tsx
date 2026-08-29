@@ -84,9 +84,16 @@ export function ProfileForm({ initial }: {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
-        displayName: form.displayName,
-        bio: form.bio || undefined,
-        avatarUrl: form.avatarUrl || undefined,
+        // Clearing the name back to nothing is not a name to save under, so
+        // an empty field omits the key -- the same "leave it as it was" that
+        // every other untouched field on this form gets by not being sent.
+        displayName: form.displayName || undefined,
+        // bio and avatarUrl are `null`, not `undefined`, when cleared: the
+        // server drops an absent key (JSON.stringify does not even send it),
+        // which would leave the old value in place instead of clearing it.
+        // See the comment above PatchSchema in app/api/me/route.ts.
+        bio: form.bio || null,
+        avatarUrl: form.avatarUrl || null,
         socials: form.socials,
       }),
     });
