@@ -36,6 +36,8 @@
 | `components/RuleEditor.tsx` | B | Reference photo + description inputs |
 | `components/NewPact.tsx` | B | Wires the reference step; sets USDC as default currency |
 | `components/CheckInCamera.tsx` | B | Shows the reference alongside the viewfinder |
+| `components/Channel.tsx` | B | Passes the reference through to the camera (preflight ruling 3) |
+| `lib/bot.ts` | A | Only if the settlement feed body is built here (preflight ruling 4) |
 | `prisma/schema.prisma` | C | The one migration: `User.bio`, `avatarUrl`, `socials`, `email` |
 | `app/api/me/route.ts` | C | PATCH branch for profile edits |
 | `app/(app)/settings/page.tsx` | C | Real settings page replacing the PLACEHOLDER |
@@ -50,7 +52,7 @@
 
 ## Lane A — Currency & payouts
 
-### Task A1: Persist the member's chosen payout token
+### Task 1 (Lane A): Persist the member's chosen payout token
 
 **Files:**
 - Modify: `app/api/pacts/[id]/stake/route.ts:29-38` (BodySchema), and the finalise handler
@@ -142,13 +144,13 @@ git add lib/dflow.ts "app/api/pacts/[id]/stake/route.ts" lib/__tests__/stake.tes
 git commit -m "feat: a member says which token they want to be paid in"
 ```
 
-### Task A2: The picker in the stake sheet
+### Task 2 (Lane A): The picker in the stake sheet
 
 **Files:**
 - Modify: `components/StakeSheet.tsx` (the `MINTS` const at :23, and the sheet body)
 
 **Interfaces:**
-- Consumes: `PAYOUT_MINTS`, `isSupportedPayoutMint` from Task A1
+- Consumes: `PAYOUT_MINTS`, `isSupportedPayoutMint` from Task 1
 - Produces: the finalise POST body carries `payoutMint`
 
 - [ ] **Step 1: Invoke the `impeccable` skill** before touching the UI. This project already uses it (`.impeccable/config.json`). Ask it for a review pass on the stake sheet once the control is in.
@@ -199,7 +201,7 @@ git add components/StakeSheet.tsx
 git commit -m "feat: choose the token your winnings arrive in"
 ```
 
-### Task A3: Name the token in the settlement line
+### Task 3 (Lane A): Name the token in the settlement line
 
 **Files:**
 - Modify: `lib/settlement.ts:280`, `:311-322` (payout construction and the feed line)
@@ -264,7 +266,7 @@ git commit -m "feat: the settlement line says which token each winner took"
 
 ## Lane B — Reference photos
 
-### Task B1: The upload endpoint
+### Task 4 (Lane B): The upload endpoint
 
 **Files:**
 - Create: `app/api/uploads/route.ts`
@@ -328,7 +330,7 @@ git add app/api/uploads/route.ts
 git commit -m "feat: one place to put an image that every device can read"
 ```
 
-### Task B2: Reference fields on the rule config
+### Task 5 (Lane B): Reference fields on the rule config
 
 **Files:**
 - Modify: `lib/rules.ts:14-45` (`RuleConfigSchema`)
@@ -340,15 +342,19 @@ git commit -m "feat: one place to put an image that every device can read"
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-it("accepts a config with reference photos and a proof description", () => {
-  expect(() =>
-    RuleConfigSchema.parse({
-      ...gym,
-      checkInReferenceUrl: "https://blob.example/in.jpg",
-      checkOutReferenceUrl: "https://blob.example/out.jpg",
-      proofDescription: "Full body in the mirror, gym floor visible behind you.",
-    }),
-  ).not.toThrow();
+it("keeps the reference photos and description on the parsed config", () => {
+  // Asserts on the OUTPUT, not merely that parse did not throw: zod strips
+  // unknown keys, so a .not.toThrow() assertion here passes before the fields
+  // exist and never fails first. Read the values back or the test is theatre.
+  const parsed = RuleConfigSchema.parse({
+    ...gym,
+    checkInReferenceUrl: "https://blob.example/in.jpg",
+    checkOutReferenceUrl: "https://blob.example/out.jpg",
+    proofDescription: "Full body in the mirror, gym floor visible behind you.",
+  });
+  expect(parsed.checkInReferenceUrl).toBe("https://blob.example/in.jpg");
+  expect(parsed.checkOutReferenceUrl).toBe("https://blob.example/out.jpg");
+  expect(parsed.proofDescription).toBe("Full body in the mirror, gym floor visible behind you.");
 });
 
 it("still accepts a config with no references — they are optional, and old pacts have none", () => {
@@ -365,7 +371,7 @@ it("rejects a proof description longer than 280 characters", () => {
 - [ ] **Step 2: Run it and watch the first test fail**
 
 Run: `npm test -- lib/__tests__/rules.test.ts`
-Expected: FAIL — zod strips unknown keys, so the parse succeeds but the fields vanish; assert on the parsed output if the test passes vacuously.
+Expected: FAIL — `parsed.checkInReferenceUrl` is `undefined` because zod strips keys the schema does not declare. If this test passes before Step 3, stop: the assertion is wrong, not the schema.
 
 - [ ] **Step 3: Add the fields** to `RuleConfigSchema`'s object, before the `.refine`:
 
@@ -390,7 +396,7 @@ git add lib/rules.ts lib/__tests__/rules.test.ts
 git commit -m "feat: a pact can carry what a good check-in looks like"
 ```
 
-### Task B3: The creator sets the references, and USDC becomes the default
+### Task 6 (Lane B): The creator sets the references, and USDC becomes the default
 
 **Files:**
 - Modify: `components/RuleEditor.tsx`, `components/NewPact.tsx`
@@ -506,7 +512,7 @@ git add components/RuleEditor.tsx components/NewPact.tsx
 git commit -m "feat: the creator sets the shot, and the default is USDC"
 ```
 
-### Task B4: The member sees the reference while checking in
+### Task 7 (Lane B): The member sees the reference while checking in
 
 **Files:**
 - Modify: `components/CheckInCamera.tsx:22-27` (props), and the channel composer that renders it
@@ -571,7 +577,7 @@ git commit -m "feat: the shot you are copying, next to the camera"
 
 ## Lane C — Profile, appearance & recovery
 
-### Task C1: The one migration
+### Task 8 (Lane C): The one migration
 
 **Files:**
 - Modify: `prisma/schema.prisma` (the `User` model)
@@ -606,7 +612,7 @@ git add prisma/
 git commit -m "feat: a user can have a face, a sentence and a way back in"
 ```
 
-### Task C2: The theme toggle moves to the nav bar
+### Task 9 (Lane C): The theme toggle moves to the nav bar
 
 **Files:**
 - Modify: `components/AppHeader.tsx`
@@ -627,14 +633,14 @@ git add components/ app/
 git commit -m "feat: the theme switch moves to the bar it was kept out of"
 ```
 
-### Task C3: The profile form
+### Task 10 (Lane C): The profile form
 
 **Files:**
 - Create: `components/ProfileForm.tsx`
 - Modify: `app/api/me/route.ts` (add a PATCH), `app/(app)/settings/page.tsx`
 
 **Interfaces:**
-- Consumes: `POST /api/uploads` from Task B1, `User` fields from C1
+- Consumes: `POST /api/uploads` from Task 4, `User` fields from C1
 - Produces: `PATCH /api/me` accepting `{ displayName?, bio?, avatarUrl?, socials? }`
 
 - [ ] **Step 1: Add the PATCH branch** to `app/api/me/route.ts`. Follow the existing POST's shape — verified Privy id, zod body, never trust the wallet address from the body:
@@ -783,7 +789,7 @@ export function ProfileForm({ initial }: {
 }
 ```
 
-Avatar upload reuses `upload()` from Task B3 — lift it to `lib/upload.ts` if both lanes have landed, otherwise duplicate the six lines rather than editing a file Lane B owns. **No GitHub stats panel** — cut by the spec.
+Avatar upload reuses `upload()` from Task 6 — lift it to `lib/upload.ts` if both lanes have landed, otherwise duplicate the six lines rather than editing a file Lane B owns. **No GitHub stats panel** — cut by the spec.
 
 - [ ] **Step 4: Replace the PLACEHOLDER block** in `app/(app)/settings/page.tsx` (the `Profile photo, linked socials` / `Not built yet.` panel) with `ProfileForm`, and delete the `/** PLACEHOLDER. */` comment.
 
@@ -795,7 +801,7 @@ git add components/ProfileForm.tsx app/api/me/route.ts "app/(app)/settings/page.
 git commit -m "feat: a name you picked, a face, a sentence and your links"
 ```
 
-### Task C4: Email linking for recovery
+### Task 11 (Lane C): Email linking for recovery
 
 **Files:**
 - Create: `components/LinkedAccounts.tsx`
@@ -899,7 +905,7 @@ git commit -m "feat: an email on the account, so a lost wallet is not a lost cre
 
 ## Lane D — Escrow protocol (prose only, no code)
 
-### Task D1: Write `docs/security/escrow-protocol.md`
+### Task 12 (Lane D): Write `docs/security/escrow-protocol.md`
 
 **Files:**
 - Create: `docs/security/escrow-protocol.md`
@@ -927,7 +933,7 @@ git commit -m "docs: who can move the money, and who cannot"
 
 ## Lane E — Deploy & mainnet readiness
 
-### Task E1: Railway with Postgres
+### Task 13 (Lane E): Railway with Postgres
 
 - [ ] **Step 1: Invoke the `railway:use-railway` skill.** Do not hand-roll the CLI.
 
@@ -948,7 +954,7 @@ git add railway.json 2>/dev/null || true
 git commit -m "feat: somewhere for judges to point a phone at" --allow-empty
 ```
 
-### Task E2: Green preflight against production
+### Task 14 (Lane E): Green preflight against production
 
 - [ ] **Step 1: Fund the sponsor wallet.** `73qXTekqgjrdgXogdnwmxS1EudX21NHGzkzBqoaP5K25`, ~0.1 SOL. **Human action — blocks everything below.**
 
@@ -962,7 +968,7 @@ Expected: every line `ok`. If Sponsor wallet or Solana RPC is not ok, stop — t
 Run: `STAKE_DRY_RUN=1 npm run rehearse`
 Expected: the route prices, the member signs, the sponsor co-signs, the guard passes, the simulation succeeds.
 
-### Task E3: One real mainnet cycle, recorded
+### Task 15 (Lane E): One real mainnet cycle, recorded
 
 - [ ] **Step 1: Seed a pact** with a ~$1–2 stake. Use `npm run seed` as the starting point.
 
@@ -999,7 +1005,7 @@ Never cut from §7 verification to save time.
 
 ## Integration
 
-### Task F1: Merge, review, submit
+### Task 16 (Lane F): Merge, review, submit
 
 - [ ] **Step 1: Full green on the branch**
 
