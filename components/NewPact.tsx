@@ -54,7 +54,19 @@ export function NewPact() {
 
   const [name, setName] = useState("");
   const [rule, setRule] = useState<RuleConfig>(DEFAULT_RULE);
-  const [stakeAmount, setStakeAmount] = useState(1000);
+  /**
+   * Five, not a thousand.
+   *
+   * The default currency became USDC and the amount did not follow it, so the
+   * field opened on 1,000 USDC -- a thousand US dollars of real mainnet money,
+   * where 1,000 THB had been about twenty-eight. Anyone who left the defaults
+   * alone was asking whoever scanned the invite to sign away a thousand
+   * dollars, and `affordability` refused it long before they would have.
+   *
+   * The drafter overwrites both of these when it runs. It does not run without
+   * ANTHROPIC_API_KEY, so these are what a crew actually gets.
+   */
+  const [stakeAmount, setStakeAmount] = useState(5);
   const [stakeCurrency, setStakeCurrency] = useState("USDC");
 
   async function draft() {
