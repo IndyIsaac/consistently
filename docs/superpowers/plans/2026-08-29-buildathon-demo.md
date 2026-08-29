@@ -1059,6 +1059,55 @@ git commit -m "docs: the transactions that prove it, and where the money is held
 
 ---
 
+## Task 18 (Lane D): Make the custody document true again
+
+**Added 2026-08-29 by Ruling 20.** Task 12 wrote `docs/security/escrow-protocol.md` before
+Task 17 existed. Its "Row 6" section describes the under-delivery bug as **live and
+unfixed**. It is fixed. The document is judge-facing and is now wrong.
+
+This task also carries three Minors from Task 17's re-review, because the person making the
+document true is the right person to make the code match what it claims.
+
+**Files:**
+- Modify: `docs/security/escrow-protocol.md`
+- Modify: `lib/stake.ts` (two one-liners only)
+
+- [ ] **Step 1: `Array.isArray` instead of truthiness.** `lib/stake.ts:453` reads
+  `if (!pre || !post) return null;`. Correct — `[]` is truthy so it fires on nullish only —
+  but it relies on the reader knowing that, and `!pre` is exactly what someone later
+  "cleans up" into an emptiness check, silently restoring the bug. Use
+  `if (!Array.isArray(pre) || !Array.isArray(post)) return null;`. This also hardens the
+  spread on the next line, which currently throws if a value is truthy but not iterable.
+
+- [ ] **Step 2: log the swallowed error.** `held`'s `catch { return null; }` is right to fail
+  closed, but it discards the error, so a `BigInt` regression in `held` presents to an
+  operator as a flaky RPC — on every stake, indefinitely. Use
+  `catch (err) { console.error(..., err); return null; }`, keeping the fail-closed behaviour.
+
+- [ ] **Step 3: rewrite Row 6.** The bug is closed. Describe what the guard does now
+  (per-signature attribution from `meta.pre/postTokenBalances`, every unknown refusing) and
+  say plainly that it was found by writing this document and fixed before submission. That
+  is a stronger claim than never having had the bug, and it is true.
+
+- [ ] **Step 4: add the residuals the review named.** (a) A row with an **absent `mint`** is
+  invisible to both the ownerless guard and the sum — under-counts, so it fails closed, but
+  the document must not claim attribution covers every unreadable row. (b) **Refused attempts
+  are unbounded and the sponsor pays for each** — `finaliseStake` never checks membership
+  status, so an attacker can loop the under-delivery path at one atomic unit plus a sponsor
+  fee per try. Pre-existing, but the fix makes repeated refusals the *expected* attacker
+  behaviour, so the document must say who pays. (c) The **stranded honest stake**: money in
+  the vault, membership unwritten, a log line the only trace, no operator path to reconcile.
+
+- [ ] **Step 5: verify and commit**
+
+```bash
+npm test -- lib/__tests__/stake.test.ts && npm run typecheck
+git add docs/security/escrow-protocol.md lib/stake.ts
+git commit -m "docs: the hole we found is shut, and here is what is still open"
+```
+
+---
+
 ## Cut order
 
 From spec §8. If the clock beats the plan, cut in this order and say so out loud:
