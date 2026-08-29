@@ -991,7 +991,23 @@ git commit -m "docs: who can move the money, and who cannot"
 
 - [ ] **Step 1: Invoke the `railway:use-railway` skill.** Do not hand-roll the CLI.
 
-- [ ] **Step 2: Create the project and a Postgres service.** Set the release command to `npx prisma migrate deploy`.
+- [ ] **Step 2: Create the project and a Postgres service.**
+
+> **CORRECTED 2026-08-29 by Ruling 21 — same defect as Ruling 16.** This step originally
+> said to set the release command to `npx prisma migrate deploy`. That cannot work: this
+> repo has **no `prisma/migrations` directory and no migration history**, so
+> `migrate deploy` finds nothing to apply and the schema is never created. Use
+> `npx prisma db push` as the release command instead.
+
+Set the release command to `npx prisma db push`.
+
+**Railway's Postgres is a NEW, EMPTY database** — it is not the local `localhost:5433`
+one the demo has been running against, and none of its 9 users or 3 pacts exist there.
+After the first deploy the schema will exist but the database will be empty, which is
+correct for a public demo: judges arrive at a signed-out landing page and create their own
+pact. Do **not** copy the local demo data over. If a furnished dashboard is wanted for the
+video, `npm run seed` against the Railway `DATABASE_URL` is the deliberate way to do it —
+say so rather than doing it silently.
 
 - [ ] **Step 3: Set the environment.** Every key in `.env.example`, plus:
   - `SOLANA_RPC_URL` — a Helius or QuickNode key, **not** the public endpoint
