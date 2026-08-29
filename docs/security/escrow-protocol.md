@@ -66,7 +66,7 @@ on a finished period, and it runs only when a member calls `POST /api/pacts/[id]
 that abandons a pact leaves its money reachable by us and by nobody else.
 
 `MemberStatus.left` compounds this: it is read in six places — `lib/queries.ts:89` and `:235`,
-`lib/settlement.ts:283`, `lib/stake.ts:686` and `:724`, `settle/route.ts:40` — and written in
+`lib/settlement.ts:283`, `lib/stake.ts:717` and `:755`, `settle/route.ts:40` — and written in
 none. There is no leave, and therefore no leave-and-get-your-stake-back.
 
 ---
@@ -185,7 +185,7 @@ The sponsor pays fees. That is its whole job in v2. It is not the vault authorit
 signature move a member's money to the sponsor. **In v2 the sponsor's key is worth exactly the SOL
 in it.**
 
-In v1 the sponsor is likewise only the fee payer (`lib/stake.ts:551`, `lib/settlement.ts:372`),
+In v1 the sponsor is likewise only the fee payer (`lib/stake.ts:586`, `lib/settlement.ts:372`),
 which sounds like the same claim and is not, because the vault key sits in the same process.
 
 ---
@@ -198,7 +198,7 @@ which sounds like the same claim and is not, because the vault key sits in the s
 | 2 | Database is dumped — leaked backup, stolen read replica | Ciphertext only. No funds move. Vault addresses and balances were already public on chain. | Nothing custodial to leak. | Whoever holds `VAULT_ENCRYPTION_KEY`. |
 | 3 | Host is compromised: key **and** database | Total. Every vault of every pact, drainable in one pass. | The attacker holds `settle_authority`. They can redirect a pot *between roster members*. They cannot send it to themselves unless they are already on a roster, and cannot touch a pact that has not reached its period end. The bound is only as good as the roster is long — in a two-person crew, "redirect between roster members" is one member taking all of it. | v1: our host. v2: our host, bounded loosely. |
 | 4 | `VAULT_ENCRYPTION_KEY` is lost | Every vault frozen permanently. No second copy exists. | Irrelevant. `refund` is signed by members. | Our backup discipline. |
-| 5 | Somebody posts transaction bytes for us to fee-pay | `assertIsOurStakeTx` (`lib/stake.ts:123`) requires two signers, the sponsor as fee payer at index 0, this pact's vault among the accounts, and only ComputeBudget + DFlow (or ComputeBudget + Token + ATA on the USDC path). | The swap now lands in the member's own wallet, so a substituted route is a donation to *them* rather than to the crew. The sponsor's exposure is the same either way: one fee per attempt. | Nobody's funds. Only the sponsor's SOL. |
+| 5 | Somebody posts transaction bytes for us to fee-pay | `assertIsOurStakeTx` (`lib/stake.ts:123`) requires two signers, the sponsor as fee payer at index 0, this pact's vault among the accounts, and only ComputeBudget + DFlow (or ComputeBudget + Token + ATA on the USDC path). Somebody is also read off the pact's roster before the sponsor signs (`lib/stake.ts:569`), so it has to be somebody in the crew. | The swap now lands in the member's own wallet, so a substituted route is a donation to *them* rather than to the crew. The sponsor's exposure is the same either way: one fee per attempt. | Nobody's funds. Only the sponsor's SOL. |
 | 6 | A member stakes *less* than the pact's stake | **Found here, fixed before submission.** The guard still checks shape and never amount; the amount is established after the broadcast, from what the confirmed transaction's own token-balance record says landed in the vault (`deliveredToVault`, `lib/stake.ts:420`). Delivered short, or not establishable at all, and the membership is not written. See below, including the five things it still does not do. | `deposit` moves exactly `stake_amount` or fails. | v1: whichever node `SOLANA_RPC_URL` names, to report a transaction back honestly. v2: nobody. |
 | 7 | Somebody forges the *verdict* | Sessions and exemptions are posted with `body.userWallet` and believed (`sessions/route.ts:122`, `exemptions/route.ts:166`, `:176`). Whoever can post as another member can change who wins. | **Unchanged.** The program checks the transfer, not the truth of it. | The check-in route. In both designs. |
 | 8 | A member disputes the result | The record is a JSON blob in our database. No independent evidence. | The verdict is a transaction: period, amounts, destinations, checkable against the on-chain roster and `rule_hash`. Proves what was claimed, not that it was true. | v1: our word. v2: still our word, but a permanent one. |
@@ -293,7 +293,9 @@ member told their stake failed stakes again and pays twice.
 
 #### What the fix does not do
 
-Five things, none of them closed by it.
+Five things. Four are open exactly as written. The second was narrowed by a later fix, and the
+account of that is in place there rather than deleted, because a residual that gets smaller is
+still a residual.
 
 **A row that does not name its `mint` is invisible.** The ownerless refusal above is gated on
 `row.mint === USDC_MINT`, and so is the sum. A row missing its mint is therefore neither refused
@@ -301,18 +303,33 @@ nor counted: it under-counts, which fails closed — an honest staker is told no
 than an under-staker being waved through. The direction is safe and the coverage is not total, and
 this document is not going to say attribution reads every unreadable row when it does not.
 
-**Refused attempts are unbounded, and the sponsor pays for every one.** `finaliseStake` reads the
-pact and never the membership, and neither does the route (`app/api/pacts/[id]/stake/route.ts:81`).
-Nothing on the path checks that the caller is on the crew's roster, or that they are not already
-staked, before the sponsor signs and the transaction goes out — the membership is read for the first
-time at the `update` that would record the stake, which is after the broadcast. So the
-under-delivery path is a loop: one atomic unit and one sponsor transaction fee per attempt,
-repeatable by any authenticated caller who knows a pact's id and its vault address, which is every
-member of that crew at minimum and neither of which is a secret. This is pre-existing, and it is not
-a route to anybody's stake — it is row 5's denial of service against onboarding, priced in lamports,
-reached through a second door. What the fix changes is that repeated refusals are now the *expected*
-shape of an attack rather than the sign of a broken client, so who pays for them is worth saying in
-plain words: we do, in the sponsor's SOL, until it runs out and no new stake can be sponsored.
+**Refused attempts are still unbounded, and the sponsor still pays for every one.** This one used to
+be worse, and the worse half is shut.
+
+`finaliseStake` read the pact and never the membership, and neither did the route
+(`app/api/pacts/[id]/stake/route.ts:81`): the membership was read for the first time at the `update`
+that records the stake, which is after the broadcast. So a caller with no row on that pact at all
+could drive the whole path. Under-delivering, they hit the refusal above and it cost us a fee.
+Delivering a *full* stake, they put their money into a crew's vault and got back a `P2025` on a key
+naming no row — a bare error, HTTP 500, *"That did not go through"*, said to somebody whose
+transaction had just confirmed. That is the sentence the error classes above are arranged to avoid,
+in the one path they did not reach.
+
+The membership is now read first (`lib/stake.ts:569`), before the sponsor signs and before anything
+is sent, and a caller with no row on the pact is told *"You are not in this crew. Nothing was
+sent."* That is not the 500 relabelled: nothing is broadcast, so no stranger's USDC arrives in a
+vault this build has no operator path to get it out of again. The read replaced the user lookup that
+used to happen after the broadcast rather than being added to it, so the cost is the same one query.
+
+What is not shut is the loop, for anyone who is actually in the crew. A member can send one atomic
+unit, be refused, and do it again, and the sponsor pays a transaction fee every time; a pact's id
+and its vault address are known to every member of that crew and neither is a secret. Whether the
+caller is *already staked* is still not checked before the broadcast either, so a staked member can
+stake a second time, the second signature is written over the first, and settlement pays one
+principal per member either way — the difference is a donation to the crew. Both are row 5's denial
+of service against onboarding, priced in lamports and paid by us in the sponsor's SOL until it runs
+out and no new stake can be sponsored. The bound is the roster now rather than the internet, which
+is narrower and is not zero.
 
 **An honest stake can be stranded, and nothing in this build can unstrand it.** If attribution
 never resolves — the node keeps saying not-here for all four attempts, or errors, or answers
@@ -338,7 +355,8 @@ are not staked. What did arrive is the crew's now."* — so nobody is left waiti
 is not coming.
 
 Row 6 is shut against the member it was open to. It is not shut against a node that answers
-untruthfully, and the list above it is not shut at all. All three are printed here the same size.
+untruthfully, and the list above it is shut in one place out of five. All three are printed here the
+same size.
 
 ### Row 7, in full, because it is the one that survives v2
 

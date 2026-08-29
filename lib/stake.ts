@@ -539,6 +539,41 @@ export async function finaliseStake(params: {
   payoutMint?: string;
 }): Promise<{ signature: string; dryRun?: DryRun }> {
   const pact = await prisma.pact.findUniqueOrThrow({ where: { id: params.pactId } });
+
+  /**
+   * Is this caller in the crew at all, and answered before anything moves.
+   *
+   * This function used to read the membership for the first time at the
+   * `update` that records the stake, which is after the broadcast. A caller
+   * with no row on this pact could therefore deliver a full stake into a crew's
+   * vault and be answered with a `P2025` on a key that names nothing -- a bare
+   * error, and every bare error past the broadcast reaches the member as "That
+   * did not go through". That sentence is the one that makes a person stake a
+   * second time and pay twice, which is the outcome the delivery check below is
+   * built around avoiding; this was the same hazard through a door that check
+   * never covered.
+   *
+   * Refusing here is not that 500 relabelled. Nothing has been co-signed,
+   * nothing has been sent, and no stranger's USDC ends up in a vault they have
+   * no claim on -- which matters because once it has, there is no operator path
+   * in this build to send it back, only a `console.error` and an apology.
+   *
+   * The read replaces the user lookup this function used to do further down
+   * rather than joining it: the membership carries the user, so this is the
+   * same single query it always was, asked at the only point where the answer
+   * can still change anything. `findFirst` rather than `findUnique` because the
+   * composite key wants a `userId` we do not have yet and the wallet is what we
+   * were handed; `walletAddress` is unique and so is `[pactId, userId]`, so at
+   * most one row can match either way.
+   */
+  const membership = await prisma.membership.findFirst({
+    where: { pactId: params.pactId, user: { walletAddress: params.userWallet } },
+    include: { user: true },
+  });
+  if (!membership) {
+    throw new StakeGuardError("You are not in this crew. Nothing was sent.");
+  }
+
   const sponsor = loadSponsor();
 
   const tx = deserializeTx(params.signedTxB64);
@@ -651,12 +686,8 @@ export async function finaliseStake(params: {
     }
   }
 
-  const user = await prisma.user.findUniqueOrThrow({
-    where: { walletAddress: params.userWallet },
-  });
-
   await prisma.membership.update({
-    where: { pactId_userId: { pactId: params.pactId, userId: user.id } },
+    where: { id: membership.id },
     data: {
       status: "staked",
       stakedAt: new Date(),
@@ -676,7 +707,7 @@ export async function finaliseStake(params: {
     data: {
       pactId: params.pactId,
       type: "bot",
-      body: `${user.displayName} is in. Stake locked.`,
+      body: `${membership.user.displayName} is in. Stake locked.`,
     },
   });
 

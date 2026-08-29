@@ -57,12 +57,14 @@ const chain = vi.hoisted(() => ({
   lookupThrows: false,
   /** How many times the transaction was asked for. */
   lookupCalls: 0,
+  /** How many times anything was put on chain. A refusal that arrives after
+   *  this has moved off zero is an explanation, not a refusal. */
+  broadcasts: 0,
 }));
 
 const db = vi.hoisted(() => ({
   pact: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
-  user: { findUniqueOrThrow: vi.fn() },
-  membership: { findMany: vi.fn(), update: vi.fn() },
+  membership: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   feedItem: { create: vi.fn() },
 }));
 
@@ -100,7 +102,10 @@ vi.mock("@/lib/solana", async (importOriginal) => {
       unitsConsumed: 1,
       logs: [],
     }),
-    submitAndConfirm: async () => "sig-under-test",
+    submitAndConfirm: async () => {
+      chain.broadcasts += 1;
+      return "sig-under-test";
+    },
     getConnection: () =>
       ({
         getTransaction: async () => {
@@ -327,32 +332,52 @@ function stake(tx: VersionedTransaction) {
   });
 }
 
-describe("finaliseStake, on what actually arrived", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    chain.sponsor = sponsor;
-    chain.dryRun = false;
-    chain.vaultAddress = vault.publicKey.toBase58();
-    chain.vaultPre = null;
-    chain.vaultPost = null;
-    chain.strangerPost = null;
-    chain.ownerless = null;
-    chain.omitBalances = null;
-    chain.unparseableAmount = false;
-    chain.notFoundFor = 0;
-    chain.lookupThrows = false;
-    chain.lookupCalls = 0;
+/**
+ * What every `finaliseStake` case starts from: a live chain, a pact with a
+ * stake to meet, and a caller who is on the crew's roster. Each test then sets
+ * the one thing it is about and nothing else.
+ *
+ * Shared by both describes below rather than copied into each, because a reset
+ * that drifts between two blocks is a test passing for a reason nobody chose.
+ */
+function primeStake() {
+  vi.clearAllMocks();
+  chain.sponsor = sponsor;
+  chain.dryRun = false;
+  chain.vaultAddress = vault.publicKey.toBase58();
+  chain.vaultPre = null;
+  chain.vaultPost = null;
+  chain.strangerPost = null;
+  chain.ownerless = null;
+  chain.omitBalances = null;
+  chain.unparseableAmount = false;
+  chain.notFoundFor = 0;
+  chain.lookupThrows = false;
+  chain.lookupCalls = 0;
+  chain.broadcasts = 0;
 
-    db.pact.findUniqueOrThrow.mockResolvedValue({
-      id: "p1",
-      stakeUsdc: STAKE,
-      vaultAddress: vault.publicKey.toBase58(),
-      stakeCurrency: "THB",
-      fxRateToUsd: { toNumber: () => 0.0285 },
-    });
-    db.user.findUniqueOrThrow.mockResolvedValue({ id: "u1", displayName: "Dave" });
-    db.membership.findMany.mockResolvedValue([]);
+  db.pact.findUniqueOrThrow.mockResolvedValue({
+    id: "p1",
+    stakeUsdc: STAKE,
+    vaultAddress: vault.publicKey.toBase58(),
+    stakeCurrency: "THB",
+    fxRateToUsd: { toNumber: () => 0.0285 },
   });
+  // Carries the user: `finaliseStake` reads the caller out of the membership
+  // rather than looking the wallet up a second time.
+  db.membership.findFirst.mockResolvedValue({
+    id: "m1",
+    user: { id: "u1", displayName: "Dave" },
+  });
+  db.membership.findMany.mockResolvedValue([]);
+  // A default per test rather than none: `clearAllMocks` forgets the calls and
+  // keeps the implementations, so a case that makes this one throw would go on
+  // throwing in every case after it.
+  db.membership.update.mockResolvedValue(undefined);
+}
+
+describe("finaliseStake, on what actually arrived", () => {
+  beforeEach(primeStake);
 
   it("refuses a structurally perfect transaction carrying one atomic unit", async () => {
     const tx = handBuiltTransfer(1n);
@@ -545,5 +570,56 @@ describe("finaliseStake, on what actually arrived", () => {
     });
     expect(db.membership.update).toHaveBeenCalledOnce();
     expect(chain.lookupCalls).toBe(0);
+  });
+});
+
+/* --- who is asking --------------------------------------------------------
+ * Everything above is about the size of what landed. This is about whether the
+ * caller had any business sending it. `finaliseStake` used to read the
+ * membership for the first time at the `update` that records the stake, which
+ * is after the broadcast: a caller who was not on the roster delivered a full
+ * stake into a crew's vault and got a `P2025` on a composite key naming no row.
+ * A bare error past the broadcast is HTTP 500 and "That did not go through",
+ * and a member told that stakes a second time -- the outcome the whole delivery
+ * check above is arranged to avoid, reached through a door it never covered.
+ * ------------------------------------------------------------------------ */
+
+describe("finaliseStake, on who is asking", () => {
+  beforeEach(() => {
+    primeStake();
+    db.membership.findFirst.mockResolvedValue(null);
+    // What the missing row does at the far end, if anything ever reaches it:
+    // Prisma throws P2025 when the key in `where` matches no row. Mocked so
+    // these two fail the way the bug failed rather than the way a forgiving
+    // stand-in would -- a refusal is only worth asserting against the error
+    // that was actually there to escape.
+    db.membership.update.mockRejectedValue(
+      Object.assign(new Error("depends on records that were required but not found"), {
+        code: "P2025",
+      }),
+    );
+  });
+
+  it("refuses a wallet with no membership on this pact, before anything is broadcast", async () => {
+    chain.vaultPost = STAKE;
+
+    // A full stake, honestly delivered, by somebody who is not in the crew.
+    // The refusal has to be a refusal and not a post-mortem, so the assertion
+    // that matters is the second one: nothing went out.
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toThrow(StakeGuardError);
+    expect(chain.broadcasts).toBe(0);
+    expect(chain.lookupCalls).toBe(0);
+    expect(db.membership.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a rehearsal by a non-member too, rather than simulating one", async () => {
+    // Placement, asserted. A check sitting inside the broadcast branch would
+    // let a rehearsal walk past it and reach the same `update` on the same
+    // missing row -- a 500 with no transaction behind it, which is the demo
+    // failing for a reason nobody watching could name.
+    chain.dryRun = true;
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toThrow(StakeGuardError);
+    expect(db.membership.update).not.toHaveBeenCalled();
   });
 });
