@@ -11,8 +11,9 @@ import {
 } from "@solana/spl-token";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { buildOrder, USDC_MINT } from "@/lib/dflow";
+import { buildOrder, PAYOUT_MINTS, USDC_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
+import { formatMoney } from "@/lib/money";
 import { periodDayKeys } from "@/lib/pact-view";
 import { dayKeyFor, hasFailed, RuleConfigSchema } from "@/lib/rules";
 import {
@@ -136,6 +137,33 @@ export function readSettlement(payouts: unknown, usdRate: number) {
       return Boolean(record?.failed.some((f) => f.membershipId === membershipId));
     },
   };
+}
+
+/**
+ * One line for the settlement feed: who took what, and in which token.
+ *
+ * This is where the DFlow story becomes visible. `settlePact` builds one
+ * order per winner, routing their share into the mint *they* chose in the
+ * stake sheet -- a plain transfer cannot do that, and without this line
+ * nothing on screen said it had happened; the feed only named the winners.
+ * Deadpan, per the product's voice: it reports the payout, it does not
+ * congratulate anyone for receiving it.
+ */
+export function settlementLine(s: {
+  winners: { displayName: string; amountUsdc: bigint; payoutMint: string }[];
+}): string {
+  if (s.winners.length === 0) return "Nobody missed. Nothing moved.";
+
+  const label = (mint: string) => PAYOUT_MINTS.find((m) => m.mint === mint)?.label ?? "USDC";
+
+  return (
+    s.winners
+      .map(
+        (w) =>
+          `${w.displayName} took ${formatMoney(Number(w.amountUsdc) / 1e6, "USDC")} in ${label(w.payoutMint)}`,
+      )
+      .join(". ") + "."
+  );
 }
 
 /* ---------------------------------------------------------------------------
@@ -371,7 +399,13 @@ export async function settlePact(
           ? "Everyone made it. Nobody paid a thing."
           : winners.length === 0
             ? `Nobody made it. Every stake stays in the vault until someone does.`
-            : `${names(failed)} missed. Their stakes went to ${names(winners)}. Settled automatically.`,
+            : `${names(failed)} missed. ${settlementLine({
+                winners: record.payouts.map((p) => ({
+                  displayName: byId.get(p.membershipId)?.user.displayName ?? "Someone",
+                  amountUsdc: BigInt(p.principalUsdc) + BigInt(p.shareUsdc),
+                  payoutMint: p.payoutMint,
+                })),
+              })} Settled automatically.`,
     },
   });
 

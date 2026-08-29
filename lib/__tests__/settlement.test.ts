@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitPot, SettlementRecordSchema, readSettlement } from "@/lib/settlement";
+import { splitPot, SettlementRecordSchema, readSettlement, settlementLine } from "@/lib/settlement";
 
 describe("splitPot", () => {
   it("splits one failed stake between three winners", () => {
@@ -105,6 +105,25 @@ describe("readSettlement", () => {
     const r = readSettlement(legacy, rate);
     expect(r.shareFor("m_indy")).toBe(0);
     expect(r.forfeitedBy("m_dave")).toBe(0);
+  });
+});
+
+describe("settlementLine", () => {
+  it("names the token each winner was paid in, because that is the DFlow story", () => {
+    const line = settlementLine({
+      winners: [
+        { displayName: "Nam", amountUsdc: 1_500_000n, payoutMint: "So11111111111111111111111111111111111111112" },
+        { displayName: "Indy", amountUsdc: 1_500_000n, payoutMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
+      ],
+    });
+    expect(line).toContain("Nam");
+    expect(line).toContain("SOL");
+    expect(line).toContain("Indy");
+    expect(line).toContain("USDC");
+  });
+
+  it("reports nothing moving when nobody won", () => {
+    expect(settlementLine({ winners: [] })).toBe("Nobody missed. Nothing moved.");
   });
 });
 
