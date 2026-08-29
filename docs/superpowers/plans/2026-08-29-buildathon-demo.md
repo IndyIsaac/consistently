@@ -1124,6 +1124,62 @@ git commit -m "docs: the hole we found is shut, and here is what is still open"
 
 ---
 
+## Task 19 (Lane A): A non-member can drive the stake path
+
+**Added 2026-08-29 by Ruling 22.** Found by Task 18's adversarial pass while updating the
+custody document. Reported, deliberately not fixed there — that task was scoped to two
+one-liners.
+
+**The bug.** `finaliseStake` never reads the membership before broadcasting, and neither
+does `app/api/pacts/[id]/stake/route.ts`. The membership is read for the first time at the
+`prisma.membership.update` that records the stake — *after* the money has moved.
+
+For a caller who is not a member of the pact at all:
+- **Under-delivering** hits `StakeGuardError` and is only the sponsor-fee DoS already
+  disclosed as residual 2.
+- **Delivering a full stake** is the problem. Attribution succeeds, the `update` throws
+  `P2025` on the missing composite key, that is a bare error, and it falls to the route's
+  last branch: **HTTP 500, "That did not go through", after a confirmed transaction put
+  their money in a crew's vault.**
+
+That is the exact double-charge hazard Task 17 round 1 adjudicated as worse than the bug it
+was fixing: a member told "this did not go through" stakes again. It is self-harm rather
+than an attack, and row 5 already discloses a stranger's delivery into a vault as a donation
+to the crew. The **money** outcome is disclosed. The **error class** is not.
+
+**Files:** `lib/stake.ts`, `lib/__tests__/stake.test.ts`, `docs/security/escrow-protocol.md`
+
+- [ ] **Step 1: Fail fast, before the broadcast.** Read the membership at the top of
+  `finaliseStake`, before `submitAndConfirm`, and refuse with `StakeGuardError` when it is
+  absent. Prefer this over classifying the missing-membership case as `SubmitError` after
+  the fact: refusing before the money moves is strictly better than explaining afterwards,
+  and it removes the 500 rather than relabelling it.
+
+- [ ] **Step 2: Check no legitimate flow breaks.** `/api/pacts/join` creates the membership
+  before a member reaches the stake sheet, so a staking member should always have one.
+  **Verify that** rather than assuming — trace the join, re-stake and `reopen` paths. If any
+  legitimate path stakes without a membership row, STOP and report.
+
+- [ ] **Step 3: Write the failing test** — `finaliseStake` for a wallet with no membership on
+  that pact must refuse, and must refuse *before* anything is broadcast.
+
+- [ ] **Step 4: Run it and watch it fail.**
+- [ ] **Step 5: Implement.**
+- [ ] **Step 6: Run it and watch it pass.**
+
+- [ ] **Step 7: Update the custody document.** `docs/security/escrow-protocol.md` discloses
+  this as an open residual. If it is closed, say so there.
+
+- [ ] **Step 8: Verify and commit**
+
+```bash
+npm test -- lib/__tests__/stake.test.ts && npm run typecheck
+git add lib/stake.ts lib/__tests__/stake.test.ts docs/security/escrow-protocol.md
+git commit -m "fix: a stake from someone who is not in the crew is not a stake"
+```
+
+---
+
 ## Cut order
 
 From spec §8. If the clock beats the plan, cut in this order and say so out loud:
