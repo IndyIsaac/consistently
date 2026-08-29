@@ -15,7 +15,12 @@ import { buildOrder, PAYOUT_MINTS, USDC_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
 import { formatMoney } from "@/lib/money";
 import { settledLine } from "@/lib/bot";
-import { periodDayKeys, periodDayKeysFrom, periodKeyBefore } from "@/lib/pact-view";
+import {
+  isPeriodStartKey,
+  periodDayKeys,
+  periodDayKeysFrom,
+  periodKeyBefore,
+} from "@/lib/pact-view";
 import { dayKeyFor, hasFailed, RuleConfigSchema, type RuleConfig } from "@/lib/rules";
 import {
   deserializeTx,
@@ -318,6 +323,20 @@ export async function settlePact(
   });
 
   const rule = RuleConfigSchema.parse(pact.ruleConfig);
+
+  /**
+   * Enforced here rather than at the route, because this is where the key is
+   * consumed: the two producers inside the product already satisfy it, and the
+   * one that arrives in a request body need not.
+   */
+  if (!isPeriodStartKey(rule, periodKey)) {
+    throw new SettlementError(
+      rule.period === "week"
+        ? "A week is settled by the Monday it started on, as YYYY-MM-DD."
+        : "A day is settled by its own date, as YYYY-MM-DD.",
+    );
+  }
+
   /**
    * The days of the period being settled -- taken from `periodKey`, not from
    * `now`.

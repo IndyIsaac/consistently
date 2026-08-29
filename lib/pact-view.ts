@@ -93,6 +93,30 @@ export function periodDayKeysFrom(rule: RuleConfig, periodKey: string): string[]
   return rule.period === "day" ? [periodKey] : weekFrom(periodKey);
 }
 
+/**
+ * Whether `periodKey` really is the first day of a period -- the precondition
+ * above, which `periodDayKeysFrom` cannot check for itself without also having
+ * to decide what to do about a key that fails it.
+ *
+ * Every producer inside the product satisfies it. A request body does not:
+ * `periodKey` arrives as a string, so this is the only thing standing between
+ * a member naming a Wednesday and a Wednesday-to-Tuesday window -- which is no
+ * crew's week -- being judged, paid out of, and marked failed against.
+ *
+ * The round trip through `toISOString` is not belt and braces. `Date` rolls a
+ * date that does not exist forward rather than refusing it, and 2026-02-30
+ * rolls to March the second, which is a Monday: a check that only asked
+ * `getUTCDay()` would take it and settle a week nobody named. It also catches
+ * the key that is not a date at all, which `addDays` turns into a RangeError
+ * from the middle of a settlement.
+ */
+export function isPeriodStartKey(rule: RuleConfig, periodKey: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodKey)) return false;
+  const day = new Date(`${periodKey}T00:00:00.000Z`);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== periodKey) return false;
+  return rule.period === "day" || day.getUTCDay() === 1; // 1 = Monday
+}
+
 export function weekDayMarks(
   sessions: SessionRecord[],
   rule: RuleConfig,

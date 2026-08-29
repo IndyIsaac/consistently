@@ -327,6 +327,39 @@ describe("settling from the channel", () => {
     await cleanup();
   });
 
+  /**
+   * `periodKey` is the one input here that is not derived. Both producers
+   * inside the product hand `settlePact` the first key of a period; a member
+   * posting one by hand need not, and a mid-week key windows seven days from
+   * that day -- a week no crew has, judged and paid against on real money.
+   */
+  it("refuses a period key that is not the day a period starts on", async () => {
+    const { pact, cleanup } = await fixture(A_FORTNIGHT_AGO());
+    // The Wednesday of the finished week: past, so the running-period guard
+    // does not answer it first, and the refusal under test is the one that does.
+    const wednesday = weekDayKeys(
+      pact.timezone,
+      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+    )[2];
+
+    const res = await post(pact.id, { periodKey: wednesday });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Monday/);
+    expect(await prisma.settlement.count({ where: { pactId: pact.id } })).toBe(0);
+    await cleanup();
+  });
+
+  it("refuses a period key that is not a date at all, as a 400 rather than a 500", async () => {
+    // `addDays` calls toISOString on it. An unparseable key threw a RangeError
+    // out of the window builder and reached the member as "Settlement did not
+    // finish", which is neither true nor anything they can act on.
+    const { pact, cleanup } = await fixture(A_FORTNIGHT_AGO());
+    const res = await post(pact.id, { periodKey: "banana" });
+    expect(res.status).toBe(400);
+    expect(await prisma.settlement.count({ where: { pactId: pact.id } })).toBe(0);
+    await cleanup();
+  });
+
   it("takes force only as a boolean, so a stray string cannot turn it on", async () => {
     const { pact, cleanup } = await fixture();
     const res = await post(pact.id, { force: "yes" });

@@ -7,6 +7,7 @@ import {
   readSettlement,
   settlementLine,
 } from "@/lib/settlement";
+import { isPeriodStartKey } from "@/lib/pact-view";
 import type { RuleConfig } from "@/lib/rules";
 
 describe("splitPot", () => {
@@ -236,6 +237,49 @@ describe("periodToSettle", () => {
         settled: ["2026-08-17", "2026-08-10"],
       }),
     ).toThrow(/Every week that has ended is settled/);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The precondition `periodDayKeysFrom` documents and cannot check for itself.
+ *
+ * Both producers inside the product hand it the first key of a period. The
+ * request body does not: `periodKey` is a string, so a signed-in member can
+ * name a Wednesday and have a Wednesday-to-Tuesday window -- which is nobody's
+ * week -- judged, paid out of, and marked failed against, on real money.
+ * ------------------------------------------------------------------------- */
+describe("isPeriodStartKey", () => {
+  const week: RuleConfig = {
+    cadence: 5, period: "week", sessionType: "checkin_checkout", minDurationMins: 30,
+    windowStart: "05:00", windowEnd: "22:00", proof: "photo",
+    failsWhenMissedExceeds: 0, split: "equal", exemption: "majority", durationPeriods: 12,
+  };
+  const day: RuleConfig = { ...week, period: "day", cadence: 1 };
+
+  it("accepts the Monday a week begins on", () => {
+    expect(isPeriodStartKey(week, "2026-08-24")).toBe(true);
+    expect(isPeriodStartKey(week, "2026-08-17")).toBe(true);
+  });
+
+  it("refuses every other day of the week", () => {
+    for (const key of ["2026-08-25", "2026-08-26", "2026-08-29", "2026-08-30"]) {
+      expect(isPeriodStartKey(week, key)).toBe(false);
+    }
+  });
+
+  it("refuses a date that is not one, and one that only looks like one", () => {
+    expect(isPeriodStartKey(week, "banana")).toBe(false);
+    expect(isPeriodStartKey(week, "2026-8-24")).toBe(false);
+    expect(isPeriodStartKey(week, "")).toBe(false);
+    // February has no thirtieth. `Date` rolls it forward to March the second,
+    // which is a Monday -- so a check that only asked getUTCDay() would take
+    // it and then window a week the caller never named.
+    expect(isPeriodStartKey(week, "2026-02-30")).toBe(false);
+  });
+
+  it("takes any real date for a daily rule, which is its own period", () => {
+    expect(isPeriodStartKey(day, "2026-08-26")).toBe(true);
+    expect(isPeriodStartKey(day, "2026-02-30")).toBe(false);
   });
 });
 
