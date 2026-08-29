@@ -463,7 +463,12 @@ async function deliveredToVault(params: {
       // A crew's first stake is untouched by this: a vault with no USDC account
       // yet has no row to report, which the RPC sends as an empty array and not
       // as an absent one.
-      if (!pre || !post) return null;
+      //
+      // `Array.isArray` rather than `!pre`, which is the same test only if the
+      // reader already knows `[]` is truthy. Spelling it out leaves no emptiness
+      // check for anyone to "tidy" this into, and it makes the spread below safe
+      // against a node sending something that is neither an array nor nullish.
+      if (!Array.isArray(pre) || !Array.isArray(post)) return null;
 
       // `owner` is optional on the RPC type because nodes before 1.8 omitted
       // it, and `null` is that same absence spelled the other way. If a row we
@@ -485,7 +490,7 @@ async function deliveredToVault(params: {
         // transaction made one, which is a real zero and the ordinary case for
         // a crew's first stake.
         return held(post) - held(pre);
-      } catch {
+      } catch (err) {
         // `uiTokenAmount.amount` is typed as a decimal string and `BigInt`
         // throws on anything else. That throw would leave here as a bare Error,
         // and every bare Error past the broadcast reaches the member as "That
@@ -494,6 +499,17 @@ async function deliveredToVault(params: {
         // we cannot read is one more way of not having established one, so it
         // leaves by the same door as the rest and this function keeps the
         // `bigint | null` contract its name is written on.
+        //
+        // Logged rather than swallowed. `held` filters, reduces and parses and
+        // does nothing else, so a throw from it is more likely a regression in
+        // this file than a node being odd -- and a regression that only ever
+        // presents as an intermittent RPC, on every stake, is a regression
+        // nobody goes looking for. Failing closed is the right behaviour; being
+        // quiet about why is not part of it.
+        console.error(
+          `stake attribution unreadable: signature=${params.signature} vault=${params.vaultAddress}`,
+          err,
+        );
         return null;
       }
     }

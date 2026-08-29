@@ -9,9 +9,13 @@ submission.
 This document exists because custody is not something a demo can show. A four-minute demo
 shows money moving. It cannot show who *could* have moved it.
 
-Everything below is checkable against the files it cites. §3 row 6 is a hole we found while
-writing this, in our own code, that lets a member of a crew stake less than they agreed. It is
-here for the same reason the rest is.
+Everything below is checkable against the files it cites. Line numbers are as of this commit; the
+symbol named beside one is the part of a reference that does not move.
+
+§3 row 6 is a hole we found while writing this, in our own code, that let a member of a crew stake
+less than they agreed. It was fixed before submission. The row still carries the account of it,
+along with the five things the fix does not do — because a document that quietly deleted the bug it
+found would be a worse document than one that never found it.
 
 ---
 
@@ -21,19 +25,19 @@ Every pact gets its own Solana keypair, generated at creation.
 
 ```
 lib/vault.ts:29     createVault()  -> Keypair.generate()
-prisma/schema.prisma:45   Pact.vaultAddress    the public key, plainly public
-prisma/schema.prisma:46   Pact.vaultSecretEnc  the secret key, encrypted
+prisma/schema.prisma:52   Pact.vaultAddress    the public key, plainly public
+prisma/schema.prisma:53   Pact.vaultSecretEnc  the secret key, encrypted
 ```
 
 The secret is encrypted with AES-256-GCM under `VAULT_ENCRYPTION_KEY` — a 32-byte value read
 from the process environment (`lib/vault.ts:4-10`) — and stored as `iv.tag.ciphertext`, three
 base64 fields joined by dots (`lib/vault.ts:12-18`). The ciphertext has never been sent to a
 client and is not sent to one now; the route that used to return pact rows wholesale was
-narrowed for this reason (`app/api/pacts/route.ts:83`).
+narrowed for this reason (`app/api/pacts/route.ts:98`).
 
 Money leaves a vault in exactly one place. `settlePact` decrypts the pact's secret into process
-memory (`lib/settlement.ts:296`) and signs the payout with it, alongside the sponsor as fee payer
-(`lib/settlement.ts:336`).
+memory (`lib/settlement.ts:332`) and signs the payout with it, alongside the sponsor as fee payer
+(`lib/settlement.ts:372`).
 
 ### The exposure, stated exactly
 
@@ -62,7 +66,7 @@ on a finished period, and it runs only when a member calls `POST /api/pacts/[id]
 that abandons a pact leaves its money reachable by us and by nobody else.
 
 `MemberStatus.left` compounds this: it is read in six places — `lib/queries.ts:89` and `:235`,
-`lib/settlement.ts:247`, `lib/stake.ts:465` and `:503`, `settle/route.ts:40` — and written in
+`lib/settlement.ts:283`, `lib/stake.ts:686` and `:724`, `settle/route.ts:40` — and written in
 none. There is no leave, and therefore no leave-and-get-your-stake-back.
 
 ---
@@ -111,7 +115,7 @@ member for money the member did not send. Cannot credit a partial amount. Cannot
 out.
 
 That last constraint costs the demo its best moment and there is no way around it. Today the DFlow
-route delivers straight into the vault via `destinationWallet` (`lib/stake.ts:196`), so staking is
+route delivers straight into the vault via `destinationWallet` (`lib/stake.ts:207`), so staking is
 one signature from a member who holds neither USDC nor SOL. Under v2 the route has to deliver into
 the member's own wallet first, and `deposit` then moves the stake into the vault — **two
 transactions, both sponsored, and the money moves in the second one.**
@@ -123,6 +127,14 @@ delta is not attributable: the chain does not know whose swap landed. Two member
 means whoever calls `deposit` first is credited for the other's money. Deciding the attribution
 off-chain puts the server back in the middle of it, which is the thing v2 exists to stop. So it is
 two transactions, and the demo script has to say so.
+
+That paragraph and §3 row 6 look like they contradict each other, and the difference is worth
+stating before somebody finds it. What closed row 6 is a *confirmed transaction's* metadata, read
+off chain after the fact; a program executing on chain cannot read the metadata of the transaction
+it is running inside. The version of the argument we have **not** tested is instruction
+introspection — `deposit` reading the swap ahead of it in the same transaction through the
+instructions sysvar, and crediting the signer for the rise it caused. Nobody here has written that,
+so "two transactions" currently rests on the part of the argument nobody has tried to break.
 
 ### `settle`
 
@@ -173,7 +185,7 @@ The sponsor pays fees. That is its whole job in v2. It is not the vault authorit
 signature move a member's money to the sponsor. **In v2 the sponsor's key is worth exactly the SOL
 in it.**
 
-In v1 the sponsor is likewise only the fee payer (`lib/stake.ts:407`, `lib/settlement.ts:336`),
+In v1 the sponsor is likewise only the fee payer (`lib/stake.ts:551`, `lib/settlement.ts:372`),
 which sounds like the same claim and is not, because the vault key sits in the same process.
 
 ---
@@ -186,16 +198,16 @@ which sounds like the same claim and is not, because the vault key sits in the s
 | 2 | Database is dumped — leaked backup, stolen read replica | Ciphertext only. No funds move. Vault addresses and balances were already public on chain. | Nothing custodial to leak. | Whoever holds `VAULT_ENCRYPTION_KEY`. |
 | 3 | Host is compromised: key **and** database | Total. Every vault of every pact, drainable in one pass. | The attacker holds `settle_authority`. They can redirect a pot *between roster members*. They cannot send it to themselves unless they are already on a roster, and cannot touch a pact that has not reached its period end. The bound is only as good as the roster is long — in a two-person crew, "redirect between roster members" is one member taking all of it. | v1: our host. v2: our host, bounded loosely. |
 | 4 | `VAULT_ENCRYPTION_KEY` is lost | Every vault frozen permanently. No second copy exists. | Irrelevant. `refund` is signed by members. | Our backup discipline. |
-| 5 | Somebody posts transaction bytes for us to fee-pay | `assertIsOurStakeTx` (`lib/stake.ts:112`) requires two signers, the sponsor as fee payer at index 0, this pact's vault among the accounts, and only ComputeBudget + DFlow (or ComputeBudget + Token + ATA on the USDC path). | The swap now lands in the member's own wallet, so a substituted route is a donation to *them* rather than to the crew. The sponsor's exposure is the same either way: one fee per attempt. | Nobody's funds. Only the sponsor's SOL. |
-| 6 | A member stakes *less* than the pact's stake | The same guard checks the transaction's shape and never its amount. A member can be recorded `staked` having sent one atomic unit. See below. | `deposit` moves exactly `stake_amount` or fails. | v1: every member, to be honest about their own stake. v2: nobody. |
+| 5 | Somebody posts transaction bytes for us to fee-pay | `assertIsOurStakeTx` (`lib/stake.ts:123`) requires two signers, the sponsor as fee payer at index 0, this pact's vault among the accounts, and only ComputeBudget + DFlow (or ComputeBudget + Token + ATA on the USDC path). | The swap now lands in the member's own wallet, so a substituted route is a donation to *them* rather than to the crew. The sponsor's exposure is the same either way: one fee per attempt. | Nobody's funds. Only the sponsor's SOL. |
+| 6 | A member stakes *less* than the pact's stake | **Found here, fixed before submission.** The guard still checks shape and never amount; the amount is established after the broadcast, from what the confirmed transaction's own token-balance record says landed in the vault (`deliveredToVault`, `lib/stake.ts:420`). Delivered short, or not establishable at all, and the membership is not written. See below, including the five things it still does not do. | `deposit` moves exactly `stake_amount` or fails. | v1: whichever node `SOLANA_RPC_URL` names, to report a transaction back honestly. v2: nobody. |
 | 7 | Somebody forges the *verdict* | Sessions and exemptions are posted with `body.userWallet` and believed (`sessions/route.ts:122`, `exemptions/route.ts:166`, `:176`). Whoever can post as another member can change who wins. | **Unchanged.** The program checks the transfer, not the truth of it. | The check-in route. In both designs. |
 | 8 | A member disputes the result | The record is a JSON blob in our database. No independent evidence. | The verdict is a transaction: period, amounts, destinations, checkable against the on-chain roster and `rule_hash`. Proves what was claimed, not that it was true. | v1: our word. v2: still our word, but a permanent one. |
 | 9 | Crew abandons the pact; nobody settles | Money sits in the vault. Only we can move it. There is no refund and no leave. | `refund` after `refund_after`. | v1: us. v2: nobody. |
-| 10 | Payout is redirected to a wrong address | Settlement reads the destination from `Membership.user.walletAddress` (`lib/settlement.ts:325`). Whoever controls the database controls the destination. | The roster wallet is on chain, fixed at `initialize`, compared by the program. | v1: our database. v2: nobody. |
-| 11 | We quietly take a cut | `PLATFORM_FEE_BPS` and `PLATFORM_FEE_ACCOUNT` are read from the environment **at payout time** (`lib/settlement.ts:329-330`) and applied to the swap leg. Default is `0`. A crew that staked under a 0% fee can be settled under a different one, and would see nothing. | `fee_bps` and `fee_account` are fixed at `initialize` and enforced by `settle`. | v1: us, again. v2: nobody. |
+| 10 | Payout is redirected to a wrong address | Settlement reads the destination from `Membership.user.walletAddress` (`lib/settlement.ts:361`). Whoever controls the database controls the destination. | The roster wallet is on chain, fixed at `initialize`, compared by the program. | v1: our database. v2: nobody. |
+| 11 | We quietly take a cut | `PLATFORM_FEE_BPS` and `PLATFORM_FEE_ACCOUNT` are read from the environment **at payout time** (`lib/settlement.ts:365-366`) and applied to the swap leg. Default is `0`. A crew that staked under a 0% fee can be settled under a different one, and would see nothing. | `fee_bps` and `fee_account` are fixed at `initialize` and enforced by `settle`. | v1: us, again. v2: nobody. |
 | 12 | Member keys | Members sign with Privy embedded wallets. Whoever controls the Privy app can act as any member. | **Unchanged**, and it bounds the whole design: a PDA no human controls, funded and refunded by wallets a third party controls, is a smaller improvement than "non-custodial" suggests. | Privy. In both designs. |
 | 13 | `settlePact(..., { force: true })` bypasses the period-end check | Not reachable from the route — the handler never passes it. Server-side execution could settle a running period, which marks the crew failed, pays nobody, and burns the period's mutex. A stuck period, not a diverted payout. | `settle` rejects an unfinished period on chain. | Our code review. |
-| 14 | `STAKE_DRY_RUN=1` in production | The whole path runs, both signatures verify against live state, only the broadcast is skipped. The membership is written `staked` with a signature of `dry-run:<timestamp>`. The app records money that did not move. Guarded by a deploy checklist and nothing else. | Same flag, same risk — a client-side rehearsal mode is orthogonal to custody. | Our deploy discipline. |
+| 14 | `STAKE_DRY_RUN=1` in production | The whole path runs, both signatures verify against live state, only the broadcast is skipped — and row 6's delivery check with it, necessarily, since nothing is broadcast for it to attribute. The membership is written `staked` with a signature of `dry-run:<timestamp>`. The app records money that did not move. Guarded by a deploy checklist and nothing else. | Same flag, same risk — a client-side rehearsal mode is orthogonal to custody. | Our deploy discipline. |
 
 ### Row 5, in full, because it is the one guard that already exists
 
@@ -212,34 +224,121 @@ costs one fee each time and drains the sponsor's SOL, which stops new stakes fro
 It is a denial of service against onboarding, priced in lamports. It is not a route to anybody's
 stake.
 
-### Row 6, in full, because we found it writing this document
+### Row 6, in full, because we found it writing this document and then closed it
 
-The same guard is structural in a second way that its comment does not mention. It checks the
-signer count, the fee payer, the presence of the vault, and the programs called. **It never checks
-how much USDC the transaction delivers.**
+The first version of this section described this row as open, because it was. Writing out what
+`assertIsOurStakeTx` checks is what made the omission obvious: it checks the signer count, the fee
+payer, the presence of the vault, and the programs called, and **it never checks how much USDC the
+transaction delivers.**
 
-`finaliseStake` (`lib/stake.ts:387`) takes the signed bytes from the client, runs the guard, adds
-the sponsor's signature, submits, and writes the membership `staked`. No amount is compared against
-`pact.stakeUsdc` at any point, and no balance is checked before the pact flips to `active`. On the
-USDC path a member can hand-build a transaction with the same shape as ours — sponsor as fee payer,
-the idempotent ATA creation, a `transferChecked` into the vault — for one atomic unit, and be
-recorded as fully staked. The route's authentication is sound: the caller is read from their
-verified token and never from the body. It is the amount that is taken on trust, not the identity —
-along with `kind`, which the client also supplies, and which selects the allowlist the guard
-applies.
+On the USDC path a member could hand-build a transaction with our exact shape — sponsor as fee
+payer, the idempotent ATA creation, a `transferChecked` into the vault — carrying one atomic unit,
+and be recorded fully staked. The consequence was not symmetrical with row 5's donation.
+`settlePact` pays each winner a whole `pact.stakeUsdc` principal back, while the pot is the vault's
+*actual* balance, so an under-staker who kept the rule would have been paid a full stake out of the
+money the rest of the crew put in. If the vault could not cover every winner's principal, the
+payouts run in sequence until it is empty and the remaining transfers fail on chain — so the
+shortfall would have landed on whoever the loop reached last. Nobody chose that, which is the part
+that made it unacceptable.
 
-The consequence is not symmetrical with the donation above. `settlePact` pays each winner
-`pact.stakeUsdc` back plus a share (`lib/settlement.ts` note 2), while the pot is the vault's
-*actual* balance. An under-staker who keeps the rule is therefore paid a full stake out of money
-the rest of the crew put in. If the vault cannot cover every winner's principal, the payouts run
-in sequence until it is empty and the remaining transfers fail on chain — so the shortfall lands
-on whoever the loop reaches last, which is nobody's decision.
+**It was fixed before submission**, in `lib/stake.ts`, and then reviewed twice by someone who had
+not written it. Both reviews found something, and both findings are in the account below, because a
+guard is worth what its failures are worth and not what its author says about it.
 
-This is a member-against-crew hole rather than an operator-against-crew one, and it is the only
-one in this document that a single added comparison would close: assert that the transaction
-delivers at least `pact.stakeUsdc` into the vault, or read the vault balance after confirmation
-and refuse to write `staked` if it did not rise by the stake. It is written down here first
-because that is the order these things should happen in.
+#### What the guard does now
+
+The guard is still structural, and still cannot check the amount: the swap path's delivered output
+is not knowable from the bytes at all, and address-table lookups mean even the transfer path's
+accounts are not all present to be decoded. So the amount is no longer taken from the transaction
+we are asked to sign. It is taken from the transaction that landed.
+
+`finaliseStake` (`lib/stake.ts:531`) broadcasts, waits for confirmation, and then asks the chain
+what that signature — and only that signature — moved. `getTransaction` returns
+`meta.preTokenBalances` and `meta.postTokenBalances`: rows recorded per account for that one
+transaction, covering accounts loaded through address-lookup tables, each naming its `owner` and
+its `mint`. The delivered amount is the sum of the post rows the vault owns in USDC, less the sum
+of the pre rows the vault owns in USDC (`deliveredToVault`, `lib/stake.ts:420`). Below
+`pact.stakeUsdc` and the membership is not written; the member is told what actually arrived, in
+the currency the crew agreed the pact in.
+
+**The obvious fix is not this one, and the difference is the whole of the first review.** Reading
+the vault's balance either side of the broadcast and requiring the *rise* to cover the stake is
+shorter and wrong: any USDC landing in that window counts, including the attacker's own. Two seats
+in a crew, two calls carrying one atomic unit each, one full stake sent from an outside wallet
+timed to confirm inside both windows, and both memberships are written against one stake. No crew
+mate has to be staking, the timing is the attacker's to choose, and it generalises to N seats. That
+was the first fix. It was replaced rather than patched, because a delta is attribution by
+assumption and the record is attribution by evidence.
+
+**Every way of not knowing ends in a refusal.** Enumerated rather than asserted, because the second
+review found the principle written into a doc comment and contradicted twenty-six lines below it:
+
+- the lookup errors — refuse. A node that is erroring is not a node that is behind, so this one is
+  deliberately not retried.
+- the transaction is not served back within four attempts at 700ms — refuse.
+- `preTokenBalances` or `postTokenBalances` is absent rather than empty — refuse. An absent `pre`
+  read as "the vault held nothing before" attributes four other members' stakes to a transfer of
+  one atomic unit. That is the original hole reached by a node being terse instead of by a member
+  being clever, and `?? []` is all it takes to write it.
+- a USDC row does not name its `owner`, in either spelling of absent — refuse. We cannot know which
+  row we lost, and a guard that only fires when it can tell is not a guard.
+- an amount does not parse as an integer — refuse.
+
+The two refusals answer differently, on purpose. *Delivered short* is a fact about the member's
+transaction, so it is HTTP 400 and a sentence they can act on. *Could not establish* is a fact about
+us, so it is HTTP 202 with the signature and *"Sent, but we lost sight of it. Check before trying
+again."* Neither is the 500 and *"That did not go through"* that any bare error on this path would
+have reached, and avoiding that is the whole reason the second case has its own error class: a
+member told their stake failed stakes again and pays twice.
+
+#### What the fix does not do
+
+Five things, none of them closed by it.
+
+**A row that does not name its `mint` is invisible.** The ownerless refusal above is gated on
+`row.mint === USDC_MINT`, and so is the sum. A row missing its mint is therefore neither refused
+nor counted: it under-counts, which fails closed — an honest staker is told nothing arrived, rather
+than an under-staker being waved through. The direction is safe and the coverage is not total, and
+this document is not going to say attribution reads every unreadable row when it does not.
+
+**Refused attempts are unbounded, and the sponsor pays for every one.** `finaliseStake` reads the
+pact and never the membership, and neither does the route (`app/api/pacts/[id]/stake/route.ts:81`).
+Nothing on the path checks that the caller is on the crew's roster, or that they are not already
+staked, before the sponsor signs and the transaction goes out — the membership is read for the first
+time at the `update` that would record the stake, which is after the broadcast. So the
+under-delivery path is a loop: one atomic unit and one sponsor transaction fee per attempt,
+repeatable by any authenticated caller who knows a pact's id and its vault address, which is every
+member of that crew at minimum and neither of which is a secret. This is pre-existing, and it is not
+a route to anybody's stake — it is row 5's denial of service against onboarding, priced in lamports,
+reached through a second door. What the fix changes is that repeated refusals are now the *expected*
+shape of an attack rather than the sign of a broken client, so who pays for them is worth saying in
+plain words: we do, in the sponsor's SOL, until it runs out and no new stake can be sponsored.
+
+**An honest stake can be stranded, and nothing in this build can unstrand it.** If attribution
+never resolves — the node keeps saying not-here for all four attempts, or errors, or answers
+without naming owners — the transaction has already confirmed. The USDC is in the vault. The
+membership is unwritten. The only trace is a `console.error` carrying the signature, the pact and
+the wallet, and there is no operator path here to credit that member or send it back: no
+reconciliation table, no admin route, nothing in `scripts/`. The route does hand the signature to
+the client, so a person can be *shown* what happened. Being shown is not the same as being fixed.
+
+**Attribution is exactly as trustworthy as the node that answers.** The whole check is one
+`getTransaction` against whatever `SOLANA_RPC_URL` names, defaulting to the shared public endpoint
+(`lib/solana.ts:10-14`). Every failure above is a node that will not answer, and those all refuse; a
+node that answers *wrongly* — a fabricated post row owned by the vault — is believed. Nothing about
+that is new: v1 already learns everything it knows about the chain from that connection, including
+whether the transaction confirmed at all. It belongs in this row because this row is now the one
+whose correctness rests on it, and because v2 does not have the property. `deposit` is enforced by
+consensus. This is reported by an informant.
+
+**What was under-delivered stays in the vault.** By the time attribution runs, the transaction has
+confirmed. The refusal stops the membership being written; it cannot claw the money back. Whatever
+arrived is part of the pot and is paid out to winners at settlement. The refusal says so — *"You
+are not staked. What did arrive is the crew's now."* — so nobody is left waiting on a refund that
+is not coming.
+
+Row 6 is shut against the member it was open to. It is not shut against a node that answers
+untruthfully, and the list above it is not shut at all. All three are printed here the same size.
 
 ### Row 7, in full, because it is the one that survives v2
 
@@ -307,6 +406,7 @@ not the buildathon's.
 ---
 
 **Files this document describes:** `lib/vault.ts`, `lib/stake.ts`, `lib/settlement.ts`,
-`app/api/pacts/route.ts`, `app/api/pacts/[id]/settle/route.ts`,
+`lib/solana.ts`, `lib/queries.ts`, `app/api/pacts/route.ts`,
+`app/api/pacts/[id]/stake/route.ts`, `app/api/pacts/[id]/settle/route.ts`,
 `app/api/pacts/[id]/sessions/route.ts`, `app/api/pacts/[id]/exemptions/route.ts`,
 `prisma/schema.prisma`. Every claim above is checkable against them.
