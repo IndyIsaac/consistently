@@ -148,9 +148,17 @@ export function readSettlement(payouts: unknown, usdRate: number) {
  * nothing on screen said it had happened; the feed only named the winners.
  * Deadpan, per the product's voice: it reports the payout, it does not
  * congratulate anyone for receiving it.
+ *
+ * The amount is reported in the crew's own currency, not USD: `usdRate` and
+ * `currency` are the same pair `readSettlement` above takes, and the same
+ * conversion `stake.ts`'s `inCrewMoney` does -- a member staked ฿1,000, and
+ * the feed line about it has to read in ฿ too, or it is the one figure on
+ * screen that disagrees with every other one the crew sees.
  */
 export function settlementLine(s: {
   winners: { displayName: string; amountUsdc: bigint; payoutMint: string }[];
+  usdRate: number;
+  currency: string;
 }): string {
   if (s.winners.length === 0) return "Nobody missed. Nothing moved.";
 
@@ -160,7 +168,7 @@ export function settlementLine(s: {
     s.winners
       .map(
         (w) =>
-          `${w.displayName} took ${formatMoney(Number(w.amountUsdc) / 1e6, "USDC")} in ${label(w.payoutMint)}`,
+          `${w.displayName} took ${formatMoney(fromUsdcAtomic(w.amountUsdc, s.usdRate), s.currency)} in ${label(w.payoutMint)}`,
       )
       .join(". ") + "."
   );
@@ -405,6 +413,8 @@ export async function settlePact(
                   amountUsdc: BigInt(p.principalUsdc) + BigInt(p.shareUsdc),
                   payoutMint: p.payoutMint,
                 })),
+                usdRate: pact.fxRateToUsd.toNumber(),
+                currency: pact.stakeCurrency,
               })} Settled automatically.`,
     },
   });

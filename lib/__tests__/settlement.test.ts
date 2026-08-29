@@ -115,6 +115,8 @@ describe("settlementLine", () => {
         { displayName: "Nam", amountUsdc: 1_500_000n, payoutMint: "So11111111111111111111111111111111111111112" },
         { displayName: "Indy", amountUsdc: 1_500_000n, payoutMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
       ],
+      usdRate: 1,
+      currency: "USD",
     });
     expect(line).toContain("Nam");
     expect(line).toContain("SOL");
@@ -122,8 +124,24 @@ describe("settlementLine", () => {
     expect(line).toContain("USDC");
   });
 
+  it("reports in the crew's own currency, not USD -- the vault holds USDC either way", () => {
+    // A ฿1,000 stake (28,500,000 atomic at the pact's locked 0.0285 rate).
+    // USD is the one currency where a missing conversion is invisible, so
+    // this has to be the case that proves the rate and symbol are both used.
+    const line = settlementLine({
+      winners: [
+        { displayName: "Nam", amountUsdc: 28_500_000n, payoutMint: "So11111111111111111111111111111111111111112" },
+      ],
+      usdRate: 0.0285,
+      currency: "THB",
+    });
+    expect(line).toBe("Nam took ฿1,000 in SOL.");
+  });
+
   it("reports nothing moving when nobody won", () => {
-    expect(settlementLine({ winners: [] })).toBe("Nobody missed. Nothing moved.");
+    expect(settlementLine({ winners: [], usdRate: 1, currency: "USD" })).toBe(
+      "Nobody missed. Nothing moved.",
+    );
   });
 });
 
