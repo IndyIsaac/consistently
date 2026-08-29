@@ -16,9 +16,16 @@ const SOCIALS = [
   { key: "telegram", label: "Telegram" },
 ] as const;
 
-/** Name, face, one sentence, and where else you are. No GitHub stats: the crew
- *  is a gym group and a study pair, and a contributions graph tells them
- *  nothing about whether you turned up. */
+/** Name, face, one sentence, and where else you are.
+ *
+ *  GitHub stats were cut here on the original call: the crew is a gym group
+ *  and a study pair, and a contributions graph tells them nothing about
+ *  whether you turned up. Reversed 2026-08-29 -- the product owner asked for
+ *  this exact 21st.dev calendar component by name and supplied its source.
+ *  Settings now renders it (components/ui/retro-space-shooter-git-hub-calendar.tsx)
+ *  for anyone with a non-empty `github` value below; the reasoning above
+ *  stands as the record of why it was cut in the first place, not as a rule
+ *  still in force. */
 export function ProfileForm({ initial }: {
   initial: {
     displayName: string;
