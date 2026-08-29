@@ -36,6 +36,37 @@ const PRIVY_CONFIGURED = PRIVY_APP_ID.length > 0;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const CODE_LENGTH = 6;
 
+/* ---------------------------------------------------------------------------
+ * "Signed in" is two facts, and they do not arrive together.
+ *
+ * Privy's `authenticated` is a client fact: it flips the moment the SDK holds a
+ * token. proxy.ts reads a `privy-token` cookie, which is a server fact and
+ * lands a beat later -- the SDK writes it once the token is stored, with
+ * js-cookie, which is the only reason this file is allowed to read it.
+ *
+ * Navigating inside that gap is a loop: push /dashboard, the proxy sees no
+ * cookie and sends the member back to /, the door sees `authenticated` and
+ * pushes again, forever. What that looks like from a chair is a white screen
+ * that comes right after a refresh, which is a bug report nobody enjoys.
+ *
+ * So the door waits for the cookie itself -- not a timer, not the token, the
+ * exact string proxy.ts gates on -- before it moves anybody.
+ * ------------------------------------------------------------------------- */
+const SESSION_COOKIE = "privy-token";
+
+/** Long enough for a slow round trip, short enough to still be an app. */
+const SESSION_WAIT_MS = 3_000;
+const SESSION_POLL_MS = 60;
+
+/**
+ * The end of the line, and the only sentence here a member can act on.
+ * Reloading is not a shrug: a fresh document asks the server again, and Privy
+ * writes this cookie SameSite=Strict -- so one that exists but was withheld
+ * from a cross-site landing is carried by the second, same-site request.
+ */
+const SESSION_UNSEEN =
+  "You are signed in and the server cannot see it. Reload the page. If that does not do it, this browser is not letting the cookie through.";
+
 /**
  * One installed wallet, ready to be pressed. Resolves to an error string or
  * null, like every other step here.
@@ -58,6 +89,40 @@ type Auth = {
 
 function pause(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * The one fact proxy.ts checks, read where the browser keeps it. If the cookie
+ * is not in this string the next request will not carry it either, which is
+ * precisely the question worth asking before navigating.
+ */
+function serverCanSeeSession() {
+  return new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`).test(document.cookie);
+}
+
+/**
+ * Resolves true once the cookie is there, false if it never turned up.
+ *
+ * `getAccessToken()` comes first because it mints or refreshes the token and
+ * Privy writes the cookie in the same breath. It is not the proof, though --
+ * the cookie is -- so the verdict comes from the poll either way, and the
+ * token call is raced against the deadline so a hung refresh cannot hold the
+ * door shut.
+ */
+async function sessionVisible(getAccessToken: () => Promise<string | null>) {
+  const deadline = Date.now() + SESSION_WAIT_MS;
+
+  try {
+    await Promise.race([getAccessToken(), pause(SESSION_WAIT_MS)]);
+  } catch {
+    // A refresh that failed is not the answer to the question being asked.
+  }
+
+  while (!serverCanSeeSession()) {
+    if (Date.now() >= deadline) return false;
+    await pause(SESSION_POLL_MS);
+  }
+  return true;
 }
 
 /** A signature is 64 bytes, so a plain spread is safe here. */
@@ -112,15 +177,32 @@ function privyAuth(privy: ReturnType<typeof useLoginWithEmail>): Auth {
   };
 }
 
-type Step = "rest" | "email" | "code" | "arriving";
+type Step = "rest" | "email" | "code" | "arriving" | "stuck";
 
 const EMPTY_CODE = Array<string>(CODE_LENGTH).fill("");
+
+/**
+ * One bounce per document.
+ *
+ * Waiting for the cookie should mean the door never pushes into a redirect it
+ * cannot survive. It is not enough on its own: a cookie can be cleared
+ * mid-session, and a SameSite=Strict one is invisible to the first request of
+ * a cross-site landing however plainly `document.cookie` shows it. Either way
+ * the proxy returns the member to `/` with `alreadyIn` still true, and an
+ * effect that replaces every time it mounts is the loop.
+ *
+ * A ref would not hold, because the bounce may remount this component. A
+ * module variable lasts exactly as long as the document -- which is the right
+ * life for it: a reload is the member's retry, and it should get a clean one.
+ */
+let bouncedOnce = false;
 
 function Door({
   auth,
   privyConfigured,
   wallets,
   alreadyIn = false,
+  awaitSession,
 }: {
   auth: Auth;
   privyConfigured: boolean;
@@ -128,6 +210,12 @@ function Door({
   wallets: WalletOption[] | null;
   /** Signed in already -- a returning tab, or a sign-in that did not navigate. */
   alreadyIn?: boolean;
+  /**
+   * Resolves true once the server can see the session, false once it is clear
+   * it never will. Absent on the zero-env-var path, where there is no cookie,
+   * nothing gates on one, and so there is nothing to wait for.
+   */
+  awaitSession?: () => Promise<boolean>;
 }) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
@@ -141,6 +229,22 @@ function Door({
   const cells = useRef<(HTMLInputElement | null)[]>([]);
   const verifying = useRef(false);
 
+  /**
+   * Held in a ref, and read through one stable callback, because Privy hands
+   * back a fresh `getAccessToken` identity on some renders -- and `arrive`
+   * feeds `enter`, which must not be rebuilt under somebody mid-code. Nothing
+   * is captured that could go stale: the wait reads the cookie when it runs.
+   */
+  const gate = useRef(awaitSession);
+  // The ref is seeded once and then kept in step: `useRef(awaitSession)` reads
+  // its argument on the first render only, so a prop that arrives later -- or
+  // changes identity, which Privy's `getAccessToken` does -- would never reach
+  // the callback below without this.
+  useEffect(() => {
+    gate.current = awaitSession;
+  }, [awaitSession]);
+  const serverSees = useCallback(async () => (gate.current ? gate.current() : true), []);
+
   useEffect(() => {
     router.prefetch("/dashboard");
   }, [router]);
@@ -150,10 +254,28 @@ function Door({
    * wallet signature are different proofs of the same thing, and what follows
    * them is identical.
    */
-  const arrive = useCallback(() => {
+  const arrive = useCallback(async () => {
     setStep("arriving");
-    setTimeout(() => router.push("/dashboard"), reduceMotion ? 0 : 620);
-  }, [reduceMotion, router]);
+
+    /**
+     * The wipe and the wait run together rather than one after the other. The
+     * 620ms of threshold is time the door was already spending and the cookie
+     * almost always lands inside it, so crossing costs what it always cost --
+     * a late session is the only thing that makes anybody wait longer.
+     */
+    const [visible] = await Promise.all([serverSees(), pause(reduceMotion ? 0 : 620)]);
+
+    // Pushing anyway would hand the member the loop this whole file is now
+    // built to avoid. A sentence they can act on is a worse outcome than the
+    // dashboard and a far better one than a blank page.
+    if (!visible) {
+      setError(SESSION_UNSEEN);
+      setStep("stuck");
+      return;
+    }
+
+    router.push("/dashboard");
+  }, [reduceMotion, router, serverSees]);
 
   /**
    * A door is for people outside. Somebody already signed in and looking at it
@@ -162,11 +284,50 @@ function Door({
    * already authenticated" from Privy, which explains nothing to anybody.
    */
   useEffect(() => {
-    // `replace`, and no threshold animation: this is not an arrival, it is a
-    // page they should never have been looking at. The animation is for
-    // crossing a threshold, and they crossed it already.
-    if (alreadyIn) router.replace("/dashboard");
-  }, [alreadyIn, router]);
+    if (!alreadyIn) return;
+
+    let live = true;
+
+    void (async () => {
+      // Back here after a bounce. The client says signed in, the server keeps
+      // saying otherwise, and trying a third time would only ask the same
+      // question faster. Stop, and say so.
+      //
+      // Checked inside the async block rather than in the effect body: a
+      // synchronous setState there cascades a render, which React's own lint
+      // rule refuses, and every other refusal on this path already reports
+      // itself from here.
+      if (bouncedOnce) {
+        if (!live) return;
+        setError(SESSION_UNSEEN);
+        setStep("stuck");
+        return;
+      }
+
+      const visible = await serverSees();
+      if (!live) return;
+
+      if (!visible) {
+        setError(SESSION_UNSEEN);
+        setStep("stuck");
+        return;
+      }
+
+      // Set on the way out rather than on the way in, so a development
+      // remount -- StrictMode mounts every effect twice -- spends the one
+      // attempt on the navigation and not on the rehearsal of it.
+      bouncedOnce = true;
+
+      // `replace`, and no threshold animation: this is not an arrival, it is a
+      // page they should never have been looking at. The animation is for
+      // crossing a threshold, and they crossed it already.
+      router.replace("/dashboard");
+    })();
+
+    return () => {
+      live = false;
+    };
+  }, [alreadyIn, router, serverSees]);
 
   const enter = useCallback(
     async (code: string) => {
@@ -185,7 +346,7 @@ function Door({
         return;
       }
 
-      arrive();
+      await arrive();
     },
     [auth, arrive],
   );
@@ -405,12 +566,23 @@ function Door({
  * it, and a fresh object every render would rebuild the callback mid-typing.
  */
 function PrivyDoor() {
-  const { ready: privyReady, authenticated } = usePrivy();
+  const { ready: privyReady, authenticated, getAccessToken } = usePrivy();
   const privy = useLoginWithEmail();
   const auth = useMemo(() => privyAuth(privy), [privy]);
 
   const { ready, wallets: detected } = useStandardWallets();
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws();
+
+  /**
+   * The wait the door performs before it sends anybody at an interior route.
+   *
+   * This is the half of the fix that only exists here: `Door` is shared with
+   * the zero-env-var path, which has no Privy, no cookie and nothing to wait
+   * for, so it receives no `awaitSession` and `serverSees` answers true
+   * immediately. Only this branch has a server-side session to be out of step
+   * with in the first place.
+   */
+  const waitForSession = useCallback(() => sessionVisible(getAccessToken), [getAccessToken]);
 
   /**
    * Sign-In With Solana, by hand.
@@ -506,6 +678,7 @@ function PrivyDoor() {
       privyConfigured
       wallets={wallets}
       alreadyIn={privyReady && authenticated}
+      awaitSession={waitForSession}
     />
   );
 }
