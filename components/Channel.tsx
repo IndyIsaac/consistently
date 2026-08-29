@@ -241,7 +241,10 @@ export function Channel({
        * costs the crew nothing and trapping the member would be gratuitous.
        */
       if (view.rule.proof === "photo") {
-        say(photoUploadRefusalLine(reason));
+        // Which side of the session this was decides what is true afterwards:
+        // on the way in nothing exists, on the way out the session is still
+        // open and the member is still checked in.
+        say(photoUploadRefusalLine(reason, session ? "out" : "in"));
         scrollToFoot();
         return;
       }
@@ -369,10 +372,17 @@ export function Channel({
         say(settleFailedLine(typeof body.error === "string" ? body.error : "Try again."));
         return;
       }
-      // `failed`, not `payouts.length`: payouts are the winners, so counting
-      // them announced three misses in a crew of four where one missed, and
-      // announced that everybody had missed when nobody had.
-      say(settledLine({ failed: body.failed ?? 0, potUsdc: body.potUsdc ?? "0" }));
+      // `failedCount` for the misses, `payouts.length` for the winners --
+      // payouts *are* the winners, which is why counting them as misses
+      // announced three in a crew of four where one missed. The winner count
+      // is what stops the bot promising a payout when there is nobody to pay.
+      say(
+        settledLine({
+          failed: body.failedCount ?? 0,
+          winners: body.payouts?.length ?? 0,
+          potUsdc: body.potUsdc ?? "0",
+        }),
+      );
       await refresh();
     } catch {
       say(settleFailedLine("Could not reach the settlement."));

@@ -259,8 +259,23 @@ export function settlingLine(): string {
   return "Closing the period. Working out who owes what.";
 }
 
-export function settledLine(params: { failed: number; potUsdc: string }): string {
+/**
+ * The verdict, said to whoever ran the command.
+ *
+ * `winners` is here because without it this line claimed a payout that did not
+ * happen. A crew where everybody missed has nobody left to pay, so the pot
+ * stays where it is -- and this said "Two missed, their stakes are on their
+ * way to everyone who did not" directly above the settlement feed row saying
+ * the vault kept the lot. lib/settlement.ts writes that row by calling this,
+ * so the two cannot disagree again.
+ */
+export function settledLine(params: {
+  failed: number;
+  winners: number;
+  potUsdc: string;
+}): string {
   if (params.failed === 0) return "Everyone made it. Nobody paid a thing.";
+  if (params.winners === 0) return "Nobody made it. Every stake stays in the vault until someone does.";
   return `${cap(spellNumber(params.failed))} missed. Their stakes are on their way to everyone who did not.`;
 }
 
@@ -303,14 +318,20 @@ export function settleUnknownArgumentReply(argument: string): string {
 // --- when the photo does not make it ----------------------------------------
 
 /**
- * A check-in the crew will never see, because the photo never reached storage.
+ * A photo that never reached storage, on a pact whose proof is a photo.
  *
- * Said when the pact's proof is a photo. The session is not recorded at all: it
- * would count towards the cadence with nothing behind it, which is the one
- * thing the crew cannot check and the one thing the whole product rests on.
+ * The two sides of a session fail differently and have to be told apart. On
+ * the way in nothing is recorded at all: the session would count towards the
+ * cadence with nothing behind it, which is the one thing the crew cannot check
+ * and the one thing the whole product rests on. On the way out the session is
+ * already open and stays open -- so saying "nothing was recorded" to a member
+ * looking at their own running timer, and calling their check-out a check-in
+ * while doing it, was wrong twice in one sentence.
  */
-export function photoUploadRefusalLine(reason: string): string {
-  return `${reason} A check-in without a photo is not a check-in, so nothing was recorded.`;
+export function photoUploadRefusalLine(reason: string, side: "in" | "out"): string {
+  return side === "in"
+    ? `${reason} A check-in without a photo is not a check-in, so nothing was recorded.`
+    : `${reason} The pact wants a photo to check out, so you are still checked in.`;
 }
 
 /** The same failure on a pact that only asks members to say they turned up. */

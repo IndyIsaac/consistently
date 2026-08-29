@@ -182,7 +182,7 @@ describe("settling from the channel", () => {
     // their length as the number who missed. Both members missed here and
     // neither is owed anything, so the two lists are 2 and 0.
     const body = await res.json();
-    expect(body.failed).toBe(2);
+    expect(body.failedCount).toBe(2);
     expect(body.payouts).toHaveLength(0);
 
     // Nobody did anything, so nobody is owed anything -- the pot has no winner

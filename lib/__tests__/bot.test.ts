@@ -14,6 +14,7 @@ import {
   parseSettle,
   photoUploadRefusalLine,
   photoUploadSkippedLine,
+  settledLine,
   settleUnknownArgumentReply,
   settlingForcedLine,
   settlingLine,
@@ -238,7 +239,8 @@ describe("the commands", () => {
       crewStandingLine("Dave", 1, 5, cadenceOutlook(1, 3, gym)),
       settlingForcedLine(),
       settleUnknownArgumentReply("tomorrow"),
-      photoUploadRefusalLine("Photo upload is not configured."),
+      photoUploadRefusalLine("Photo upload is not configured.", "in"),
+      photoUploadRefusalLine("Photo upload is not configured.", "out"),
       photoUploadSkippedLine("Photo upload is not configured."),
     ]) {
       expect(isDeadpan(reply)).toBe(true);
@@ -288,10 +290,49 @@ describe("parsing /settle", () => {
   });
 });
 
+/* ---------------------------------------------------------------------------
+ * What the bot says when the period closes.
+ *
+ * It has to agree with the `settlement` feed row lib/settlement.ts writes at
+ * the same instant. Those two sentences land next to each other in the same
+ * column, and at the demo they land on a projector, so one of them claiming a
+ * payout the other says did not happen is the worst thing on the screen.
+ * ------------------------------------------------------------------------- */
+describe("settledLine", () => {
+  it("says nobody paid when nobody missed", () => {
+    expect(settledLine({ failed: 0, winners: 3, potUsdc: "0" })).toBe(
+      "Everyone made it. Nobody paid a thing.",
+    );
+  });
+
+  it("names the number who missed when there is somebody left to pay", () => {
+    expect(settledLine({ failed: 1, winners: 3, potUsdc: "28500000" })).toBe(
+      "One missed. Their stakes are on their way to everyone who did not.",
+    );
+  });
+
+  it("does not claim a payout when everybody missed and there is nobody to pay", () => {
+    // Word for word the feed row lib/settlement.ts writes for this case. The
+    // bot used to say "Two missed. Their stakes are on their way to everyone
+    // who did not" immediately above it.
+    expect(settledLine({ failed: 2, winners: 0, potUsdc: "0" })).toBe(
+      "Nobody made it. Every stake stays in the vault until someone does.",
+    );
+  });
+});
+
 describe("a check-in whose photo never reached storage", () => {
   it("refuses the check-in outright when the pact is one that wants a photo", () => {
-    expect(photoUploadRefusalLine("Photo upload is not configured.")).toBe(
+    expect(photoUploadRefusalLine("Photo upload is not configured.", "in")).toBe(
       "Photo upload is not configured. A check-in without a photo is not a check-in, so nothing was recorded.",
+    );
+  });
+
+  it("says a failed check-out in the words of a check-out, and leaves the session open", () => {
+    // The old line called a check-out a check-in and told the member nothing
+    // was recorded, on a screen showing the session it had already recorded.
+    expect(photoUploadRefusalLine("Photo upload is not configured.", "out")).toBe(
+      "Photo upload is not configured. The pact wants a photo to check out, so you are still checked in.",
     );
   });
 

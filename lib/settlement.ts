@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db";
 import { buildOrder, PAYOUT_MINTS, USDC_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
 import { formatMoney } from "@/lib/money";
+import { settledLine } from "@/lib/bot";
 import { periodDayKeys, periodKeyBefore } from "@/lib/pact-view";
 import { dayKeyFor, hasFailed, RuleConfigSchema, type RuleConfig } from "@/lib/rules";
 import {
@@ -300,8 +301,11 @@ export async function settlePact(
    * winners -- and the channel was reading its length as this number, so with
    * one loser in a crew of four the bot announced that three had missed, and
    * with nobody missing at all it announced that everybody had.
+   *
+   * Named `failedCount` and not `failed` because `SettlementRecord.failed` in
+   * this same module is a list of membership rows. One name, one shape.
    */
-  failed: number;
+  failedCount: number;
 }> {
   const pact = await prisma.pact.findUniqueOrThrow({
     where: { id: pactId },
@@ -467,12 +471,21 @@ export async function settlePact(
     data: {
       pactId,
       type: "settlement",
+      // The two degenerate cases come from `settledLine` rather than being
+      // written out again here. The bot says one of these to whoever ran the
+      // command and this row lands beside it in the same column, so a second
+      // copy of the sentence is a second copy that can drift -- and it did:
+      // the bot claimed a payout while this row said the vault kept the lot.
+      // The third case is genuinely different, because the feed names people
+      // and the amounts they took and the reply to one member does not.
       body:
-        failed.length === 0
-          ? "Everyone made it. Nobody paid a thing."
-          : winners.length === 0
-            ? `Nobody made it. Every stake stays in the vault until someone does.`
-            : `${names(failed)} missed. ${settlementLine({
+        failed.length === 0 || winners.length === 0
+          ? settledLine({
+              failed: failed.length,
+              winners: winners.length,
+              potUsdc: pot.toString(),
+            })
+          : `${names(failed)} missed. ${settlementLine({
                 winners: record.payouts.map((p) => ({
                   displayName: byId.get(p.membershipId)?.user.displayName ?? "Someone",
                   amountUsdc: BigInt(p.principalUsdc) + BigInt(p.shareUsdc),
@@ -484,7 +497,7 @@ export async function settlePact(
     },
   });
 
-  return { payouts: record.payouts, potUsdc: pot.toString(), failed: failed.length };
+  return { payouts: record.payouts, potUsdc: pot.toString(), failedCount: failed.length };
 }
 
 /** A winner taking USDC needs a transfer, not a route. */
