@@ -1004,13 +1004,16 @@ export const GithubCalendar = memo(function GithubCalendar({
             })()}
         </div>
 
-        <div className="flex items-center justify-between gap-x-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           {/* legend (left) */}
           {showLegend && (
             <div className="flex flex-wrap items-center gap-4 text-[11px] text-grey-on-ground shrink-0 mt-0.5">
               <div className="flex items-center gap-1.5">
                 <span>Less</span>
-                {([0, 1, 2, 3, 4] as ContributionLevel[]).map((level) => (
+                {/* 1-4, not 0-4. Level 0 is fully transparent by design, so a
+                    swatch for it is an invisible box that opens a gap after
+                    "Less" -- it reads as a swatch that failed to render. */}
+                {([1, 2, 3, 4] as ContributionLevel[]).map((level) => (
                   <svg key={level} width={cellSize} height={cellSize}>
                     <rect
                       width={cellSize}
@@ -1041,18 +1044,16 @@ export const GithubCalendar = memo(function GithubCalendar({
 
           {/* stats line (right) */}
           {showStats && (
-            <div className="flex flex-1 flex-wrap justify-end ml-auto text-[13px] tracking-wide text-grey-on-ground">
+            <div className="ml-auto text-[13px] tracking-wide text-grey-on-ground">
               <a
                 href={`https://github.com/${username}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-x-1 transition-colors hover:text-ink"
+                className="block text-right transition-colors hover:text-ink"
               >
-                <span className="font-semibold text-ink">{username}</span>
-                <span>
-                  · {stats.total.toLocaleString()} contribution
-                  {stats.total === 1 ? "" : "s"}, {formatRangeLabel(resolvedStart, resolvedEnd)}
-                </span>
+                <span className="font-semibold text-ink">{username}</span> ·{" "}
+                {stats.total.toLocaleString()} contribution
+                {stats.total === 1 ? "" : "s"}, {formatRangeLabel(resolvedStart, resolvedEnd)}
               </a>
             </div>
           )}
