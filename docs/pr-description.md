@@ -4,7 +4,18 @@ A crew agrees a rule and each member stakes real money on keeping it. Whoever br
 forfeits their stake to the people who kept it, automatically. This branch takes that from a
 half-built app to something deployed and defensible.
 
-Live at **https://web-production-8764a.up.railway.app**, on Solana mainnet.
+Two environments:
+
+| | | |
+|---|---|---|
+| **Production** | https://web-production-8764a.up.railway.app | Solana mainnet, real money |
+| **Rehearsal** | https://web-rehearsal-df0c.up.railway.app | `STAKE_DRY_RUN=1`, separate database |
+
+Rehearsal runs the whole money path except the broadcast: the route is priced, the member
+signs, the sponsor co-signs, the guard checks it, and the transaction is simulated against live
+mainnet with signature verification on. The funding gate offers a way through rather than
+demanding SOL. It exists so the demo can be walked end to end without spending anything, and so
+practice pacts never appear in the database a judge sees.
 
 The README is rewritten and accurate as of this head. New: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 for the flow with diagrams, [`docs/security/escrow-protocol.md`](docs/security/escrow-protocol.md)
