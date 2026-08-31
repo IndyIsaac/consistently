@@ -3,13 +3,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
-import { House, Users } from "lucide-react";
+import { Compass, House, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Two tabs. Settings lives behind the profile, not in the bar. */
+/**
+ * Three tabs. Settings lives behind the profile, not in the bar.
+ *
+ * DESIGN.md says two, and said so when the only way into a crew was a QR code
+ * somebody handed you. Communities is the first surface that has to be found
+ * rather than arrived at, and a directory nobody can reach is not a directory.
+ * The rule it breaks is the count, not the treatment.
+ *
+ * The limelight below is sized from this array rather than from a hardcoded
+ * half, so a fourth tab is a line here and nothing else.
+ */
 const TABS = [
   { href: "/dashboard", label: "Dashboard", Icon: House, owns: ["/dashboard"] },
   { href: "/groups", label: "Groups", Icon: Users, owns: ["/groups", "/pacts"] },
+  { href: "/communities", label: "Explore", Icon: Compass, owns: ["/communities"] },
 ];
 
 /**
@@ -34,10 +45,11 @@ export function BottomNav() {
       aria-label="Sections"
       className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
     >
-      <div className="pointer-events-auto relative flex h-[68px] w-[240px] overflow-hidden rounded-[26px] border border-hairline bg-panel/85 shadow-nav backdrop-blur-xl sm:w-[272px]">
+      <div className="pointer-events-auto relative flex h-[68px] w-[318px] overflow-hidden rounded-[26px] border border-hairline bg-panel/85 shadow-nav backdrop-blur-xl sm:w-[354px]">
         <motion.div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-0 w-1/2"
+          className="pointer-events-none absolute inset-y-0 left-0"
+          style={{ width: `${100 / TABS.length}%` }}
           initial={false}
           animate={{
             x: `${Math.max(activeIndex, 0) * 100}%`,
@@ -79,7 +91,8 @@ export function BottomNav() {
               key={tab.href}
               href={tab.href}
               aria-current={active ? "page" : undefined}
-              className="relative z-10 flex w-1/2 flex-col items-center justify-center gap-1.5 rounded-[26px] pt-1.5 outline-offset-[-6px]"
+              style={{ width: `${100 / TABS.length}%` }}
+              className="relative z-10 flex flex-col items-center justify-center gap-1.5 rounded-[26px] pt-1.5 outline-offset-[-6px]"
             >
               <tab.Icon
                 className={cn(
