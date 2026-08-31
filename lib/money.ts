@@ -29,6 +29,19 @@ export function isSupportedCurrency(currency: string): boolean {
 }
 
 const GROUPED = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+/**
+ * The same grouping, to the cent.
+ *
+ * Rounding to whole units is right for the currency this product was written
+ * against -- ฿1,000, where the satang are noise nobody agreed on. It is wrong
+ * the moment the crew stakes in USDC: a dollar each rounded to "$1" is
+ * survivable, forty cents rounded to "$0" is a staking product telling four
+ * people they have staked nothing.
+ */
+const TO_THE_CENT = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
 export function currencySymbol(currency: string): string {
   const code = currency.toUpperCase();
@@ -38,5 +51,18 @@ export function currencySymbol(currency: string): string {
 /** `formatMoney(3333, "THB")` -> `"฿3,333"`. Always unsigned; the sign is carried
  *  by where the figure sits and by the one colour it is allowed. */
 export function formatMoney(amount: number, currency: string): string {
-  return `${currencySymbol(currency)}${GROUPED.format(Math.abs(Math.round(amount)))}`;
+  // Whole amounts stay whole: ฿1,000 is what the crew agreed and what it should
+  // read as. Anything with a fraction is written out, because the alternative
+  // is rounding somebody's stake away in front of them.
+  //
+  // Dust is the exception, and it is deliberate. One atomic unit of USDC is
+  // ฿0.000035, and "฿0.00" is a more precise way of saying the same nothing
+  // that "฿0" says more plainly -- see the shortfall message in lib/stake.ts,
+  // which exists to tell somebody that what arrived was not a stake.
+  const size = Math.abs(amount);
+  if (Number.isInteger(size)) return `${currencySymbol(currency)}${GROUPED.format(size)}`;
+
+  const cents = TO_THE_CENT.format(size);
+  const written = cents === TO_THE_CENT.format(0) ? GROUPED.format(0) : cents;
+  return `${currencySymbol(currency)}${written}`;
 }

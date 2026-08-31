@@ -522,6 +522,23 @@ export function Channel({
             </a>
           </p>
 
+          {/* The most important fact on a pact that has not started, and the
+              one the screen used to omit entirely. A crew runs only once
+              everybody has staked -- lib/stake.ts is explicit that nobody
+              should be exposed to a rule the rest have not paid for -- so
+              until then the week below is a week nobody is being judged on.
+              The member who has paid deserves to know what they are waiting
+              for; the one who has not deserves to know they are the hold-up. */}
+          {view.funding && (
+            <p className="mt-7 max-w-[40ch] text-[15px] leading-relaxed text-ink">
+              <span className="figure font-semibold">
+                {view.funding.staked} of {view.funding.of}
+              </span>{" "}
+              staked. It starts when everyone has
+              {view.funding.staked === view.funding.of ? " arrived" : ""}.
+            </p>
+          )}
+
           {me && (
             <div className="mt-9">
               <p className="figure text-[2.75rem] leading-[0.95] font-extrabold text-ink">
@@ -617,7 +634,14 @@ export function Channel({
                   </div>
                 )}
                 <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
-                  <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
+                  {/* Nothing to check into yet. A session recorded against a
+                      pact that has not started counts towards a period nobody
+                      is being judged on, and offering the button says the
+                      opposite of what the line above it says. The commands
+                      stay -- /invite is exactly what this member needs. */}
+                  {!view.funding && (
+                    <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
+                  )}
                   <div className="min-w-0 flex-1">
                     <CommandInput onSubmit={run} />
                   </div>
