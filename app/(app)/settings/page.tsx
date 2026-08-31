@@ -23,7 +23,22 @@ function readGithubHandle(socials: unknown): string | null {
   if (!socials || typeof socials !== "object" || Array.isArray(socials)) return null;
   const value = (socials as Record<string, unknown>).github;
   if (typeof value !== "string") return null;
-  return value.trim() || null;
+  /**
+   * Forgiving on purpose. The field is a text box next to a GitHub logo, so
+   * people type `@torvalds` and paste `github.com/torvalds`; the contributions
+   * API takes a bare username and the URL encodes whatever it is given, so an
+   * `@` arrives as `%40` and the graph just fails. Strip the two things anyone
+   * actually types instead of asking them to know the difference.
+   */
+  return (
+    value
+      .trim()
+      .replace(/^https?:\/\//i, "")
+      .replace(/^(www\.)?github\.com\//i, "")
+      .replace(/^@/, "")
+      .replace(/\/+$/, "")
+      .trim() || null
+  );
 }
 
 export default async function SettingsPage() {

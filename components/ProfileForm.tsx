@@ -4,17 +4,26 @@ import { useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { TriangleAlert } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { FIELD, FieldLabel } from "@/components/Panel";
+import { DashedRule, FIELD, FieldLabel } from "@/components/Panel";
+import { GithubMark, InstagramMark, TelegramMark, XMark } from "@/components/SocialMarks";
 import { upload } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { initialsOf } from "@/lib/view";
 
 const SOCIALS = [
-  { key: "x", label: "X" },
-  { key: "github", label: "GitHub" },
-  { key: "instagram", label: "Instagram" },
-  { key: "telegram", label: "Telegram" },
+  { key: "x", label: "X", Mark: XMark },
+  { key: "github", label: "GitHub", Mark: GithubMark },
+  { key: "instagram", label: "Instagram", Mark: InstagramMark },
+  { key: "telegram", label: "Telegram", Mark: TelegramMark },
 ] as const;
+
+/**
+ * FieldLabel's look on a real `<label>`. FieldLabel renders a `<p>`, which
+ * cannot be associated with an input and is not phrasing content, so it
+ * cannot sit inside one either. Six unlabelled pills was the whole problem
+ * here: identical until filled, and unidentifiable once they were.
+ */
+const SUB_LABEL = "block text-[11px] font-medium uppercase tracking-[0.12em] text-grey-on-ground";
 
 /** Name, face, one sentence, and where else you are.
  *
@@ -26,6 +35,15 @@ const SOCIALS = [
  *  for anyone with a non-empty `github` value below; the reasoning above
  *  stands as the record of why it was cut in the first place, not as a rule
  *  still in force. */
+/**
+ * The shape Onboarding hands a wallet sign-in: first four, ellipsis, last
+ * four. Matching the shape rather than re-deriving it from the address keeps
+ * this from needing the wallet, which this component never receives.
+ */
+function isAddressStandIn(name: string) {
+  return /^.{4}\u2026.{4}$/.test(name);
+}
+
 export function ProfileForm({ initial }: {
   initial: {
     displayName: string;
@@ -36,7 +54,14 @@ export function ProfileForm({ initial }: {
 }) {
   const { getAccessToken } = usePrivy();
   const [form, setForm] = useState({
-    displayName: initial.displayName,
+    // Not `initial.displayName`. Onboarding gives a wallet sign-in
+    // `oNZv…xk1Y` as a stand-in name, and seeding the field with it puts a
+    // truncated address -- ellipsis character and all -- in front of someone
+    // being asked what the crew calls them. Worse, Save would then persist
+    // that string as their actual name. Blank invites a real one, and an
+    // empty field omits the key on save, so the stand-in survives untouched
+    // until they type something better.
+    displayName: isAddressStandIn(initial.displayName) ? "" : initial.displayName,
     bio: initial.bio ?? "",
     avatarUrl: initial.avatarUrl ?? "",
     socials: initial.socials ?? {},
@@ -156,34 +181,57 @@ export function ProfileForm({ initial }: {
         </p>
       )}
 
-      <input
-        className={`${FIELD} mt-5 w-full`}
-        maxLength={40}
-        value={form.displayName}
-        onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-        placeholder="What the crew calls you"
-      />
-
-      <input
-        className={`${FIELD} mt-3 w-full`}
-        maxLength={280}
-        value={form.bio}
-        onChange={(e) => setForm({ ...form, bio: e.target.value })}
-        placeholder="One line"
-      />
-
-      {SOCIALS.map((s) => (
+      <div className="mt-6">
+        <label htmlFor="profile-name" className={SUB_LABEL}>
+          Name
+        </label>
         <input
-          key={s.key}
-          className={`${FIELD} mt-3 w-full`}
-          maxLength={200}
-          value={form.socials[s.key] ?? ""}
-          onChange={(e) =>
-            setForm({ ...form, socials: { ...form.socials, [s.key]: e.target.value } })
-          }
-          placeholder={s.label}
+          id="profile-name"
+          className={`${FIELD} mt-2 w-full`}
+          maxLength={40}
+          value={form.displayName}
+          onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+          placeholder="What the crew calls you"
         />
-      ))}
+      </div>
+
+      <div className="mt-4">
+        <label htmlFor="profile-bio" className={SUB_LABEL}>
+          One line
+        </label>
+        <input
+          id="profile-bio"
+          className={`${FIELD} mt-2 w-full`}
+          maxLength={280}
+          value={form.bio}
+          onChange={(e) => setForm({ ...form, bio: e.target.value })}
+          placeholder="Ten words on what you are here for"
+        />
+      </div>
+
+      <DashedRule className="mt-6" />
+
+      {/* Two up, each marked by its own logo. Four full-width pills read as a
+          ladder and cost twice the height for fields secondary to the two
+          above; the mark identifies the field far faster than a word does,
+          and unlike a placeholder it survives the field being filled. */}
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        {SOCIALS.map((s) => (
+          <div key={s.key} className={cn(FIELD, "flex items-center gap-2.5 px-4")}>
+            <s.Mark className="size-[15px] shrink-0 text-grey-on-ground" />
+            <input
+              aria-label={s.label}
+              className="w-full min-w-0 bg-transparent text-[14px] text-ink outline-none placeholder:text-grey-on-ground"
+              maxLength={200}
+              value={form.socials[s.key] ?? ""}
+              onChange={(e) =>
+                setForm({ ...form, socials: { ...form.socials, [s.key]: e.target.value } })
+              }
+              placeholder="username"
+            />
+          </div>
+        ))}
+      </div>
 
       <button
         type="button"
