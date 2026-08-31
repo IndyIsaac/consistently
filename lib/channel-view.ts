@@ -40,6 +40,8 @@ export type ChannelPactInput = {
   timezone: string;
   stakeAmount: number;
   stakeCurrency: string;
+  /** The pact's own Solana account. Public; the key that spends it is not. */
+  vaultAddress: string;
   crew: (LeaderRow & {
     initials: string;
     isViewer: boolean;
@@ -94,6 +96,16 @@ export type ChannelView = {
   /** The whole crew's stake, formatted. */
   pot: string;
   settlesOn: string;
+  /**
+   * Where the crew's money actually is, carried to a screen on purpose.
+   *
+   * The stakes sit in an account this server holds the key to, which
+   * docs/security/escrow-protocol.md states in its first sentence. A product
+   * that asks four friends to hand it money and then keeps the address to
+   * itself is asking for trust it has not earned; the address costs nothing to
+   * show and turns the claim into something a member can go and check.
+   */
+  vaultAddress: string;
   /** The Monday of the current crew-local week — what an exemption is asked about. */
   periodKey: string;
   crew: ChannelMember[];
@@ -145,6 +157,7 @@ export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
     stake,
     pot,
     settlesOn: settles,
+    vaultAddress: pact.vaultAddress,
     periodKey: weekDayKeys(pact.timezone, now)[0],
     crew,
     viewer,

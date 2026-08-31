@@ -489,6 +489,24 @@ export function Channel({
             </span>
           </div>
 
+          {/* The money is in an account with an address, and the address is
+              public. Saying so here, next to the figures it belongs to, is the
+              cheapest honest answer to "where has my money gone" -- and the
+              only one that does not require taking our word for it. No copy
+              button: nobody sends here by hand, the stake flow does, so the
+              link is the whole affordance. */}
+          <p className="mt-3 text-[13px] leading-relaxed text-grey-on-ground">
+            Every stake sits in the crew&rsquo;s vault until it settles.{" "}
+            <a
+              href={`https://solscan.io/account/${view.vaultAddress}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="figure rounded-sm text-ink underline decoration-hairline underline-offset-4 transition-colors hover:decoration-ink"
+            >
+              {`${view.vaultAddress.slice(0, 4)}…${view.vaultAddress.slice(-4)}`}
+            </a>
+          </p>
+
           {me && (
             <div className="mt-9">
               <p className="figure text-[2.75rem] leading-[0.95] font-extrabold text-ink">
