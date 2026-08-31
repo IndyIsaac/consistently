@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { DashedRule, FieldLabel } from "@/components/Panel";
 import { SignOut } from "@/components/SignOut";
@@ -50,10 +50,23 @@ export function WalletPanel({
   const staked = allocations.filter((a) => a.status === "staked");
   const owing = allocations.filter((a) => a.status === "invited");
 
+  /**
+   * Owned by the render rather than by the click.
+   *
+   * The timer was started inside `copy()` and never cleared, so leaving the
+   * page within two seconds left it running against a component that is gone.
+   * components/InviteQr.tsx and components/Onboarding.tsx both already do it
+   * this way; this is the copy that did not.
+   */
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 2_000);
+    return () => clearTimeout(t);
+  }, [copied]);
+
   async function copy() {
     await navigator.clipboard.writeText(address);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2_000);
   }
 
   return (

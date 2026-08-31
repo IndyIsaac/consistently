@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
@@ -92,6 +92,13 @@ export function StakeSheet({
   const [payout, setPayout] = useState<PayoutMint>(PAYOUT_MINTS[0]);
   const [priced, setPriced] = useState<{ mint: string; quote: Quote } | null>(null);
   const [busy, setBusy] = useState(false);
+  const rehearsalRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (rehearsalRefresh.current) clearTimeout(rehearsalRefresh.current);
+    },
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
   const [rehearsed, setRehearsed] = useState(false);
 
@@ -182,7 +189,9 @@ export function StakeSheet({
       // which it was; the sheet says so before it refreshes.
       if (done.body.dryRun) {
         setRehearsed(true);
-        setTimeout(() => router.refresh(), 2_500);
+        // Cleared on unmount: a refresh two and a half seconds after somebody
+        // left this sheet is a page they are no longer looking at.
+        rehearsalRefresh.current = setTimeout(() => router.refresh(), 2_500);
         return;
       }
       router.refresh();
