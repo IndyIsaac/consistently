@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ZodError } from "zod";
+import { periodDayKeys } from "@/lib/pact-view";
 import {
   RuleConfigSchema,
   isValidSession,
@@ -63,6 +64,31 @@ describe("rule config schema", () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(ZodError);
+  });
+
+  it("keeps the reference photos and description on the parsed config", () => {
+    // Asserts on the OUTPUT, not merely that parse did not throw: zod strips
+    // unknown keys, so a .not.toThrow() assertion here passes before the fields
+    // exist and never fails first. Read the values back or the test is theatre.
+    const parsed = RuleConfigSchema.parse({
+      ...gym,
+      checkInReferenceUrl: "https://blob.example/in.jpg",
+      checkOutReferenceUrl: "https://blob.example/out.jpg",
+      proofDescription: "Full body in the mirror, gym floor visible behind you.",
+    });
+    expect(parsed.checkInReferenceUrl).toBe("https://blob.example/in.jpg");
+    expect(parsed.checkOutReferenceUrl).toBe("https://blob.example/out.jpg");
+    expect(parsed.proofDescription).toBe("Full body in the mirror, gym floor visible behind you.");
+  });
+
+  it("still accepts a config with no references — they are optional, and old pacts have none", () => {
+    expect(() => RuleConfigSchema.parse(gym)).not.toThrow();
+  });
+
+  it("rejects a proof description longer than 280 characters", () => {
+    expect(() =>
+      RuleConfigSchema.parse({ ...gym, proofDescription: "x".repeat(281) }),
+    ).toThrow();
   });
 });
 
@@ -281,5 +307,28 @@ describe("cadence outlook", () => {
       met: false,
       outOfReach: true,
     });
+  });
+});
+
+describe("periodDayKeys", () => {
+  const weekly: RuleConfig = { ...gym, period: "week" };
+  const daily: RuleConfig = { ...gym, period: "day" };
+  const friday = new Date("2026-08-28T02:12:00.000Z"); // Fri 28 Aug, 09:12 Bangkok
+
+  it("returns the crew-local week, Monday first, for a weekly rule", () => {
+    const keys = periodDayKeys(weekly, "Asia/Bangkok", friday);
+    expect(keys).toHaveLength(7);
+    expect(keys[0]).toBe("2026-08-24");
+    expect(keys[6]).toBe("2026-08-30");
+  });
+
+  it("returns just today for a daily rule", () => {
+    expect(periodDayKeys(daily, "Asia/Bangkok", friday)).toEqual(["2026-08-28"]);
+  });
+
+  it("keys to the crew's timezone, not the server's", () => {
+    // 23:50 UTC on the 27th is already the 28th in Bangkok.
+    const lateUtc = new Date("2026-08-27T17:30:00.000Z");
+    expect(periodDayKeys(daily, "Asia/Bangkok", lateUtc)).toEqual(["2026-08-28"]);
   });
 });

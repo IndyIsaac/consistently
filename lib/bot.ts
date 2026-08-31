@@ -128,20 +128,66 @@ export function outOfReachVerdict(params: {
 
 // --- the slash commands -----------------------------------------------------
 
-/** Name, description. The order they are listed in and the order they are answered in. */
-export const COMMANDS: { name: string; hint: string }[] = [
+/**
+ * Name, what it takes after the name, description. The order they are listed in
+ * and the order they are answered in.
+ *
+ * `arg` is angle brackets when the command is useless without it and square
+ * ones when it changes what the command does -- the same convention a man page
+ * uses, and the only two shapes here.
+ */
+export const COMMANDS: { name: string; arg?: string; hint: string }[] = [
   { name: "status", hint: "where you are this period" },
   { name: "crew", hint: "everyone's standing" },
   { name: "stake", hint: "what is riding on it" },
   { name: "invite", hint: "the code to hand round" },
-  { name: "exempt", hint: "ask to be let off" },
+  { name: "exempt", arg: "<reason>", hint: "ask to be let off" },
+  { name: "settle", arg: "[force]", hint: "close the period and move the money" },
   { name: "help", hint: "this" },
 ];
+
+/**
+ * Whether Enter should complete to the highlighted command rather than run
+ * what is typed.
+ *
+ * The list opens on focus, so with an empty field every command matches and
+ * the highlight sits on the first of them -- `status`. Enter then ran it, and
+ * a member who tapped the field and pressed Enter got an answer to a question
+ * they never asked, with nothing on screen to say why. The submit button had
+ * refused an empty field since it was written; only this path did not.
+ *
+ * Lives here rather than in the component because the component cannot be
+ * rendered in a node test environment, and this is the part worth pinning.
+ */
+export function enterTakesSuggestion(value: string, suggestion: string | undefined): boolean {
+  const typed = value.trim();
+  if (typed.length === 0 || suggestion === undefined) return false;
+  return typed !== suggestion;
+}
+
+/**
+ * What /status answers before the pact has started.
+ *
+ * It used to answer with the week -- "0 of 1 this week. Seven days left." --
+ * and there is no week. `startsAt` is null until everybody has staked, so the
+ * period being counted down has not begun and nobody is being judged in it.
+ * The member asking is waiting on somebody else's money, and that is the only
+ * answer worth giving them.
+ */
+export function fundingReply(staked: number, of: number): string {
+  return staked === of
+    ? `${staked} of ${of} staked. It starts the moment that lands.`
+    : `${staked} of ${of} staked. Nothing starts until everyone has.`;
+}
 
 export function helpReply(): string {
   return [
     `${cap(spellNumber(COMMANDS.length))} commands. Nothing else is a message.`,
-    ...COMMANDS.map((c) => `/${c.name}${c.name === "exempt" ? " <reason>" : ""} — ${c.hint}`),
+    ...COMMANDS.map((c) => `/${c.name}${c.arg ? ` ${c.arg}` : ""} — ${c.hint}`),
+    // Force gets a line of its own because it is the only word here that can
+    // take money off somebody who has not broken the rule yet. A member finding
+    // that out afterwards is the failure this sentence exists to prevent.
+    "Force closes a period that is still running. Everyone who has not finished by then has missed, and it does not come back.",
   ].join("\n");
 }
 
@@ -232,4 +278,97 @@ export function exemptNeedsReasonReply(): string {
 /** Said the moment a member's cadence is covered. "Nat is done. Five of five." */
 export function cadenceMetLine(name: string, cadence: number): string {
   return `${name} is done. ${cap(spellNumber(cadence))} of ${spellNumber(cadence)}.`;
+}
+
+/**
+ * What the bot says while a settlement is on chain.
+ *
+ * There is no scheduler in this build, so a period ends when the crew says it
+ * ends. `/settle` is safe to run twice: who failed is computed from the
+ * sessions rather than from whoever typed it, and the settlement row is a
+ * mutex, so a second run resumes an interrupted one rather than paying anyone
+ * again.
+ */
+export function settlingLine(): string {
+  return "Closing the period. Working out who owes what.";
+}
+
+/**
+ * The verdict, said to whoever ran the command.
+ *
+ * `winners` is here because without it this line claimed a payout that did not
+ * happen. A crew where everybody missed has nobody left to pay, so the pot
+ * stays where it is -- and this said "Two missed, their stakes are on their
+ * way to everyone who did not" directly above the settlement feed row saying
+ * the vault kept the lot. lib/settlement.ts writes that row by calling this,
+ * so the two cannot disagree again.
+ */
+export function settledLine(params: {
+  failed: number;
+  winners: number;
+  potUsdc: string;
+}): string {
+  if (params.failed === 0) return "Everyone made it. Nobody paid a thing.";
+  if (params.winners === 0) return "Nobody made it. Every stake stays in the vault until someone does.";
+  return `${cap(spellNumber(params.failed))} missed. Their stakes are on their way to everyone who did not.`;
+}
+
+export function settleFailedLine(reason: string): string {
+  return `The settlement did not finish. ${reason}`;
+}
+
+/**
+ * `/settle` takes nothing, or the single word `force`. This is the gate.
+ *
+ * Forcing settles a period that is still running, and a period that is still
+ * running has almost nobody in it who has finished yet -- so it marks most of
+ * the crew as having missed and moves their stakes. There is no undo: the
+ * settlement row is the mutex that stops the period being settled again
+ * properly once the week actually ends. That is why it cannot be the default,
+ * cannot be a flag on the server, and cannot be inferred.
+ *
+ * Nothing but the exact word turns it on. A typo, a near miss, an extra word
+ * and anything else all come back as not understood rather than falling through
+ * to an ordinary settle -- being wrong in that direction costs a member one
+ * retyped command, and being wrong in the other costs them the pact.
+ */
+export function parseSettle(argument: string): { force: boolean } | null {
+  const arg = argument.trim().toLowerCase();
+  if (arg.length === 0) return { force: false };
+  if (arg === "force") return { force: true };
+  return null;
+}
+
+/** Said instead of `settlingLine` when the member typed `/settle force`. */
+export function settlingForcedLine(): string {
+  return "Closing the period early. Anyone who has not finished by now has missed it, and that does not come back.";
+}
+
+/** The dry correction for `/settle` followed by something that is not `force`. */
+export function settleUnknownArgumentReply(argument: string): string {
+  return `There is no /settle ${argument}. /settle closes the period. /settle force closes one that is not over yet.`;
+}
+
+// --- when the photo does not make it ----------------------------------------
+
+/**
+ * A photo that never reached storage, on a pact whose proof is a photo.
+ *
+ * The two sides of a session fail differently and have to be told apart. On
+ * the way in nothing is recorded at all: the session would count towards the
+ * cadence with nothing behind it, which is the one thing the crew cannot check
+ * and the one thing the whole product rests on. On the way out the session is
+ * already open and stays open -- so saying "nothing was recorded" to a member
+ * looking at their own running timer, and calling their check-out a check-in
+ * while doing it, was wrong twice in one sentence.
+ */
+export function photoUploadRefusalLine(reason: string, side: "in" | "out"): string {
+  return side === "in"
+    ? `${reason} A check-in without a photo is not a check-in, so nothing was recorded.`
+    : `${reason} The pact wants a photo to check out, so you are still checked in.`;
+}
+
+/** The same failure on a pact that only asks members to say they turned up. */
+export function photoUploadSkippedLine(reason: string): string {
+  return `${reason} This pact takes your word for it, so it stands without one.`;
 }

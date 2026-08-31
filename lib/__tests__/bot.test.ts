@@ -11,6 +11,13 @@ import {
   inviteReply,
   outOfReachVerdict,
   outlookLine,
+  parseSettle,
+  photoUploadRefusalLine,
+  photoUploadSkippedLine,
+  settledLine,
+  settleUnknownArgumentReply,
+  settlingForcedLine,
+  settlingLine,
   spellNumber,
   stakeReply,
   statusReply,
@@ -165,16 +172,26 @@ describe("the commands", () => {
     ],
   };
 
+  // The count is asserted rather than derived on purpose: PRODUCT.md fixes the
+  // command list, and adding one should have to be a deliberate edit here too.
   it("lists every command it answers, and counts them correctly", () => {
     const help = helpReply();
-    expect(help.startsWith("Six commands.")).toBe(true);
+    expect(help.startsWith("Seven commands.")).toBe(true);
     for (const command of COMMANDS) expect(help).toContain(`/${command.name}`);
-    expect(COMMANDS).toHaveLength(6);
+    expect(COMMANDS).toHaveLength(7);
+  });
+
+  // Force can take money off a member who has not broken the rule yet, so
+  // /help has to say what it does rather than leave it to be found out.
+  it("names force in the list and says what it costs", () => {
+    const help = helpReply();
+    expect(help).toContain("/settle [force]");
+    expect(help).toMatch(/does not come back/);
   });
 
   it("corrects an unknown command dryly rather than erroring", () => {
     const reply = unknownCommandReply("gym");
-    expect(reply).toBe("There is no /gym. /help lists the six there are.");
+    expect(reply).toBe("There is no /gym. /help lists the seven there are.");
     expect(isDeadpan(reply)).toBe(true);
   });
 
@@ -220,8 +237,108 @@ describe("the commands", () => {
       stakeReply(pact),
       inviteReply(),
       crewStandingLine("Dave", 1, 5, cadenceOutlook(1, 3, gym)),
+      settlingForcedLine(),
+      settleUnknownArgumentReply("tomorrow"),
+      photoUploadRefusalLine("Photo upload is not configured.", "in"),
+      photoUploadRefusalLine("Photo upload is not configured.", "out"),
+      photoUploadSkippedLine("Photo upload is not configured."),
     ]) {
       expect(isDeadpan(reply)).toBe(true);
     }
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The one destructive command.
+ *
+ * Forcing a settlement judges a period that is still running, which marks
+ * everyone who has not finished yet as having missed -- and the settlement row
+ * is the mutex, so there is no second, proper run afterwards. The gate is this
+ * parse and nothing else, so it is where the damage is either prevented or not.
+ * ------------------------------------------------------------------------- */
+describe("parsing /settle", () => {
+  it("treats a bare /settle as the ordinary, refusable one", () => {
+    expect(parseSettle("")).toEqual({ force: false });
+    expect(parseSettle("   ")).toEqual({ force: false });
+  });
+
+  it("turns force on for the exact word, however it was capitalised", () => {
+    expect(parseSettle("force")).toEqual({ force: true });
+    expect(parseSettle("Force")).toEqual({ force: true });
+    expect(parseSettle("  FORCE  ")).toEqual({ force: true });
+  });
+
+  it("refuses to read anything else as force, which is the safe way to be wrong", () => {
+    // A typo, a near miss and an extra word all come back not understood. None
+    // of them may fall through to an ordinary settle either, or a member who
+    // meant to force would be told the week is not over and try harder.
+    for (const argument of ["froce", "forced", "force now", "yes", "-f", "force everyone"]) {
+      expect(parseSettle(argument)).toBeNull();
+    }
+  });
+
+  it("says what was not understood, and what the two forms are", () => {
+    expect(settleUnknownArgumentReply("tomorrow")).toBe(
+      "There is no /settle tomorrow. /settle closes the period. /settle force closes one that is not over yet.",
+    );
+  });
+
+  it("states plainly what forcing does before it does it", () => {
+    const line = settlingForcedLine();
+    expect(line).toMatch(/does not come back/);
+    expect(line).not.toBe(settlingLine());
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * What the bot says when the period closes.
+ *
+ * It has to agree with the `settlement` feed row lib/settlement.ts writes at
+ * the same instant. Those two sentences land next to each other in the same
+ * column, and at the demo they land on a projector, so one of them claiming a
+ * payout the other says did not happen is the worst thing on the screen.
+ * ------------------------------------------------------------------------- */
+describe("settledLine", () => {
+  it("says nobody paid when nobody missed", () => {
+    expect(settledLine({ failed: 0, winners: 3, potUsdc: "0" })).toBe(
+      "Everyone made it. Nobody paid a thing.",
+    );
+  });
+
+  it("names the number who missed when there is somebody left to pay", () => {
+    expect(settledLine({ failed: 1, winners: 3, potUsdc: "28500000" })).toBe(
+      "One missed. Their stakes are on their way to everyone who did not.",
+    );
+  });
+
+  it("does not claim a payout when everybody missed and there is nobody to pay", () => {
+    // Word for word the feed row lib/settlement.ts writes for this case. The
+    // bot used to say "Two missed. Their stakes are on their way to everyone
+    // who did not" immediately above it.
+    expect(settledLine({ failed: 2, winners: 0, potUsdc: "0" })).toBe(
+      "Nobody made it. Every stake stays in the vault until someone does.",
+    );
+  });
+});
+
+describe("a check-in whose photo never reached storage", () => {
+  it("refuses the check-in outright when the pact is one that wants a photo", () => {
+    expect(photoUploadRefusalLine("Photo upload is not configured.", "in")).toBe(
+      "Photo upload is not configured. A check-in without a photo is not a check-in, so nothing was recorded.",
+    );
+  });
+
+  it("says a failed check-out in the words of a check-out, and leaves the session open", () => {
+    // The old line called a check-out a check-in and told the member nothing
+    // was recorded, on a screen showing the session it had already recorded.
+    expect(photoUploadRefusalLine("Photo upload is not configured.", "out")).toBe(
+      "Photo upload is not configured. The pact wants a photo to check out, so you are still checked in.",
+    );
+  });
+
+  it("keeps the check-in when the pact takes the member's word for it", () => {
+    expect(photoUploadSkippedLine("Photo upload is not configured.")).toBe(
+      "Photo upload is not configured. This pact takes your word for it, so it stands without one.",
+    );
   });
 });

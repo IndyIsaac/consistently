@@ -6,12 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "preflight": "tsx scripts/preflight.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "new-wallet": "tsx scripts/new-wallet.ts",
+    "rehearse": "tsx scripts/rehearse.ts",
+    "seed": "tsx scripts/seed-demo.ts",
+    "reset": "tsx scripts/reset-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
     "@prisma/client": "^6.19.3",
     "@privy-io/react-auth": "^3.37.4",
+    "@privy-io/server-auth": "^1.32.5",
+    "@solana-program/memo": "^0.10.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.98.4",
     "@vercel/blob": "^2.8.0",
@@ -41,6 +50,7 @@
     "eslint-config-next": "16.3.2",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.11"

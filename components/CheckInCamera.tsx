@@ -8,10 +8,16 @@ import { cn } from "@/lib/utils";
  * The camera. Half of what a member can do in a group, and the only way a
  * session opens or closes.
  *
- * `capture="environment"` opens the rear camera directly on a phone, which is
- * the whole point — proof is a photo taken at the gym, not a file picked from a
- * library. On a desktop the same input falls back to a file dialog, which is
- * how the demo runs on a laptop.
+ * It used to carry `capture="environment"`, which opens the rear camera
+ * directly on a phone. The reasoning was that proof is a photo taken at the
+ * gym, not a file picked from a library -- but `capture` does not add the
+ * camera, it *removes* everything else: iOS goes straight to the viewfinder
+ * with no way to reach a photo already taken. Somebody who shot it two minutes
+ * ago, or on their other phone, simply could not check in.
+ *
+ * Without the attribute a phone offers the camera and the library together and
+ * the member picks, which is the same camera plus a way out. A desktop gets a
+ * file dialog either way.
  *
  * It no longer keeps a thumbnail of its own: the photo posts to the channel the
  * moment it is taken, and a second copy of it floating in the composer was one
@@ -48,8 +54,20 @@ export function CheckInCamera({
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
-        className="hidden"
+        /**
+         * `sr-only`, not `hidden`.
+         *
+         * `hidden` is `display: none`, and WebKit will not open a file picker
+         * for a `display: none` input that was clicked from script -- the call
+         * returns and nothing happens. Chrome allows it, which is the only
+         * reason this ever looked like it worked. On Safari, and on every
+         * iPhone, the one button the whole product turns on did nothing.
+         *
+         * `sr-only` keeps the input rendered and out of sight, which is what
+         * ProfileForm and RuleEditor both already do with their own file
+         * inputs -- and why those two kept working.
+         */
+        className="sr-only"
         onChange={handleChange}
       />
       <button

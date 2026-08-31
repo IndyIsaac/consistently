@@ -36,12 +36,85 @@ function addDays(key: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The day keys of the evaluation period containing `now`.
+ *
+ * `countValidDays` and `hasFailed` both document the same precondition: the
+ * caller must window a member's sessions to a single period before calling
+ * them, because neither reads `rule.period` itself. This is that window, and
+ * it exists so there is exactly one implementation of it -- an unwindowed call
+ * counts a member's whole history, which after two weeks means nobody can ever
+ * fail again and the product quietly stops working.
+ */
+export function periodDayKeys(rule: RuleConfig, timezone: string, now: Date): string[] {
+  return rule.period === "day" ? [dayKeyFor(now, timezone)] : weekDayKeys(timezone, now);
+}
+
+/**
+ * The key of the period `n` periods before the one `periodKey` names.
+ *
+ * Plain day arithmetic on the key for both cadences, because a period key
+ * already is a day: a daily period is its own day, and a weekly one is always
+ * the Monday `weekDayKeys` produced -- and a Monday minus seven days is the
+ * previous Monday in every timezone and across every DST boundary, which is
+ * the property `addDays` above exists to have.
+ */
+export function periodKeyBefore(rule: RuleConfig, periodKey: string, n = 1): string {
+  return addDays(periodKey, rule.period === "day" ? -n : -7 * n);
+}
+
+/** The seven day keys of the week beginning `monday`. */
+function weekFrom(monday: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+}
+
 /** The seven day keys of the crew-local week containing `now`, Monday first. */
 export function weekDayKeys(timezone: string, now: Date): string[] {
   const todayKey = dayKeyFor(now, timezone);
   const dayOfWeek = new Date(`${todayKey}T00:00:00.000Z`).getUTCDay(); // 0 = Sunday
-  const monday = addDays(todayKey, dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  return weekFrom(addDays(todayKey, dayOfWeek === 0 ? -6 : 1 - dayOfWeek));
+}
+
+/**
+ * The day keys of the period a period key names -- the same window
+ * `periodDayKeys` produces, addressed by key rather than by a clock.
+ *
+ * This is the one to reach for when the period being worked on is not the
+ * period it happens to be now. `settlePact` used `periodDayKeys(rule, tz, now)`
+ * to window the sessions it judged, which was indistinguishable from correct
+ * for as long as the only period anyone could settle was the current one.
+ *
+ * Precondition: `periodKey` is the *first* key of its period, which is what
+ * `periodDayKeys(...)[0]` and `periodKeyBefore` both produce -- a Monday for a
+ * weekly rule. Handed a Wednesday it returns the seven days from that
+ * Wednesday, which is not any crew's week.
+ */
+export function periodDayKeysFrom(rule: RuleConfig, periodKey: string): string[] {
+  return rule.period === "day" ? [periodKey] : weekFrom(periodKey);
+}
+
+/**
+ * Whether `periodKey` really is the first day of a period -- the precondition
+ * above, which `periodDayKeysFrom` cannot check for itself without also having
+ * to decide what to do about a key that fails it.
+ *
+ * Every producer inside the product satisfies it. A request body does not:
+ * `periodKey` arrives as a string, so this is the only thing standing between
+ * a member naming a Wednesday and a Wednesday-to-Tuesday window -- which is no
+ * crew's week -- being judged, paid out of, and marked failed against.
+ *
+ * The round trip through `toISOString` is not belt and braces. `Date` rolls a
+ * date that does not exist forward rather than refusing it, and 2026-02-30
+ * rolls to March the second, which is a Monday: a check that only asked
+ * `getUTCDay()` would take it and settle a week nobody named. It also catches
+ * the key that is not a date at all, which `addDays` turns into a RangeError
+ * from the middle of a settlement.
+ */
+export function isPeriodStartKey(rule: RuleConfig, periodKey: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodKey)) return false;
+  const day = new Date(`${periodKey}T00:00:00.000Z`);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== periodKey) return false;
+  return rule.period === "day" || day.getUTCDay() === 1; // 1 = Monday
 }
 
 export function weekDayMarks(

@@ -1,6 +1,18 @@
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
+/** The tokens a winner may be paid in. An allowlist, not free text: settlement
+ *  builds a real DFlow order per winner, and an unroutable mint there is a
+ *  payout that silently never lands. */
+export const PAYOUT_MINTS = [
+  { mint: USDC_MINT, label: "USDC", decimals: 6 },
+  { mint: WSOL_MINT, label: "SOL", decimals: 9 },
+] as const;
+
+export function isSupportedPayoutMint(mint: string): boolean {
+  return PAYOUT_MINTS.some((m) => m.mint === mint);
+}
+
 const BASE_URL = process.env.DFLOW_TRADE_API_URL ?? "https://dev-quote-api.dflow.net";
 
 export type RouteLeg = {

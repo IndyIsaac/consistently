@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { QRCodeSVG } from "qrcode.react";
 import { Check, Copy, X } from "lucide-react";
+import { CodePlate } from "@/components/CodePlate";
 
 /* ---------------------------------------------------------------------------
  * The invite.
@@ -14,11 +14,8 @@ import { Check, Copy, X } from "lucide-react";
  * requirements: one tap from inside the channel, and large and high-contrast
  * enough to read from the back of a room.
  *
- * The code is always near-black on white, in either theme. A QR is a physical
- * object being pointed at a camera, and an inverted one is refused outright by
- * some scanners — so the plate stays white and the dark ground simply sits
- * behind it. `level="M"` leaves a quarter of the code recoverable, which is
- * what covers a hand shake and a phone's autofocus hunting.
+ * The plate treatment — white in either theme, so a scanner will take it — is
+ * in components/CodePlate.tsx, which the wallet address on /welcome shares.
  *
  * The URL is read from `window.location.origin` rather than an env var so the
  * code points wherever the app is actually being served from — a laptop on the
@@ -146,25 +143,7 @@ export function InviteQr({
               {pactName}
             </h2>
 
-            {/* The plate. White in both themes, because a scanner is looking at it. */}
-            <div className="mt-6 rounded-[20px] bg-white p-5">
-              {url ? (
-                <QRCodeSVG
-                  value={url}
-                  size={252}
-                  level="M"
-                  marginSize={0}
-                  bgColor="#FFFFFF"
-                  fgColor="#0A0A0A"
-                  title={`Join ${pactName}`}
-                  className="block h-auto w-full max-w-[252px]"
-                />
-              ) : (
-                // One frame, before the origin is known. Sized to the code so
-                // the panel does not resize under the reader.
-                <div className="size-[252px]" aria-hidden="true" />
-              )}
-            </div>
+            <CodePlate value={url} title={`Join ${pactName}`} className="mt-6" />
 
             <p className="mt-5 max-w-[26ch] text-center text-[14px] leading-relaxed text-grey-on-ground">
               Hold it up. Scanning it opens the sign-in with this invite attached.

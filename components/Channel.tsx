@@ -10,6 +10,7 @@ import { DayMarkers } from "@/components/DayMarkers";
 import { ExemptionVote } from "@/components/ExemptionVote";
 import { Feed } from "@/components/Feed";
 import { InviteQr } from "@/components/InviteQr";
+import { StakeSheet } from "@/components/StakeSheet";
 import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
 import {
   cadenceMetLine,
@@ -18,8 +19,17 @@ import {
   helpReply,
   inviteReply,
   outOfReachVerdict,
+  parseSettle,
+  photoUploadRefusalLine,
+  photoUploadSkippedLine,
+  settledLine,
+  settleFailedLine,
+  settleUnknownArgumentReply,
+  settlingForcedLine,
+  settlingLine,
   outlookLine,
   stakeReply,
+  fundingReply,
   statusReply,
   unknownCommandReply,
 } from "@/lib/bot";
@@ -29,30 +39,29 @@ import {
   withReactionToggled,
   type ChannelView,
 } from "@/lib/channel-view";
-// MOCK: every call below is one fetch away from real. See lib/mock-session.ts.
+// The transport. Each of these is the route it names when a database and a
+// Privy app are configured, and the in-memory demo when they are not -- the
+// branch is in lib/channel-client.ts and nothing here knows which it got.
 //
-//   getPact              -> GET  /api/pacts/[id]/view
-//   getChannel           -> GET  /api/pacts/[id]/feed?viewer=<wallet>
-//   mockOpenSession      -> POST /api/pacts/[id]/sessions     { action: "open" }
-//   mockCloseSession     -> POST /api/pacts/[id]/sessions     { action: "close" }
-//   mockToggleReaction   -> POST /api/feed/[itemId]/react
-//   mockRequestExemption -> POST /api/pacts/[id]/exemptions   { action: "request" }
-//   mockCastVote         -> POST /api/pacts/[id]/exemptions   { action: "vote" }
-//
-// The arguments and the resolved shapes already match, and a refused check-out
-// already arrives as a message the caller is meant to show rather than a stack
-// trace, so the swap is the import and the transport.
+//   getPact          -> GET  /api/pacts/[id]/view
+//   getChannel       -> GET  /api/pacts/[id]/feed?viewer=<wallet>
+//   openSession      -> POST /api/pacts/[id]/sessions     { action: "open" }
+//   closeSession     -> POST /api/pacts/[id]/sessions     { action: "close" }
+//   toggleReaction   -> POST /api/feed/[itemId]/react
+//   requestExemption -> POST /api/pacts/[id]/exemptions   { action: "request" }
+//   castVote         -> POST /api/pacts/[id]/exemptions   { action: "vote" }
 import {
+  castVote,
+  ChannelError,
+  closeSession,
   getChannel,
   getPact,
-  mockCastVote,
-  mockCloseSession,
-  mockNow,
-  mockOpenSession,
-  mockRequestExemption,
-  MockSessionGuardError,
-  mockToggleReaction,
-} from "@/lib/mock-session";
+  now as channelNow,
+  openSession,
+  requestExemption,
+  toggleReaction,
+} from "@/lib/channel-client";
+import { upload } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
@@ -74,17 +83,23 @@ export function Channel({
   view: initialView,
   items: initialItems,
   viewerWallet,
+  showInvite = false,
+  needsStake = false,
 }: {
   view: ChannelView;
   items: FeedItemDto[];
   viewerWallet: string;
+  /** Opens the code straight away -- the beat after a crew is created. */
+  showInvite?: boolean;
+  /** The viewer has joined but not paid. Nothing else is theirs to do yet. */
+  needsStake?: boolean;
 }) {
   const [view, setView] = useState(initialView);
   const [items, setItems] = useState(initialItems);
   const [replies, setReplies] = useState<FeedItemDto[]>([]);
   const [session, setSession] = useState<{ sessionId: string; startedAt: number } | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [qrOpen, setQrOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(showInvite);
   const [pinned, setPinned] = useState(false);
 
   const foot = useRef<HTMLDivElement>(null);
@@ -104,7 +119,7 @@ export function Channel({
         body,
         photoUrl: null,
         authorName: null,
-        createdAt: mockNow().toISOString(),
+        createdAt: channelNow().toISOString(),
         reactions: [],
       },
       ...rows,
@@ -118,7 +133,22 @@ export function Channel({
   );
 
   const scrollToFoot = useCallback(() => {
-    requestAnimationFrame(() => foot.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    /**
+     * `nearest`, not `end`.
+     *
+     * The foot is a 1px div at the bottom of the content and there is no
+     * scroll container around the feed, so this moves the window. `end`
+     * aligns it to the bottom of the viewport whether or not it needs to --
+     * and on a channel with three lines in it, where the foot is already on
+     * screen, that is a smooth scroll to nowhere the member asked to go. It
+     * reads as the page throwing itself to the top after every command.
+     *
+     * `nearest` does nothing when the target is already visible, and the
+     * minimum when it is not, which is the whole of what this wants.
+     */
+    requestAnimationFrame(() =>
+      foot.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+    );
   }, []);
 
   /**
@@ -138,7 +168,7 @@ export function Channel({
     if (!pact) return viewRef.current;
 
     const before = viewRef.current;
-    const now = mockNow();
+    const now = channelNow();
     const after = channelView(pact, now);
 
     for (const member of after.crew) {
@@ -179,7 +209,7 @@ export function Channel({
   useEffect(() => {
     if (!session) return;
     const id = setInterval(
-      () => setElapsed(Math.max(0, Math.floor((mockNow().getTime() - session.startedAt) / 60_000))),
+      () => setElapsed(Math.max(0, Math.floor((channelNow().getTime() - session.startedAt) / 60_000))),
       1_000,
     );
     return () => clearInterval(id);
@@ -197,28 +227,69 @@ export function Channel({
   }, []);
 
   async function capture(file: File) {
-    // MOCK: a real check-in uploads to blob storage first and posts the URL it
-    // gets back. An object URL is the same string in the same field.
-    const photoUrl = URL.createObjectURL(file);
+    /**
+     * The photo goes to blob storage before anything is recorded, and the URL
+     * that comes back is what is stored.
+     *
+     * This used to be `URL.createObjectURL(file)`, which is a string that
+     * resolves only in the tab that made it. It was written to Postgres and
+     * rendered to the whole crew, so the member who took the photo saw it and
+     * every other member -- and the projector, and that member after one
+     * reload -- saw a broken image. The one photo in the product that the crew
+     * actually judges each other on was the one that never left the device.
+     */
+    let photoUrl: string | null;
+    try {
+      photoUrl = await upload(file);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : "Upload failed.";
+      /**
+       * What to do about a photo that did not go up depends on what the pact
+       * asked for, and only on that.
+       *
+       * On a `photo` pact the photo is the proof. Recording the session anyway
+       * would count a day towards the cadence with nothing behind it for the
+       * crew to look at or dispute -- and money moves on that count. So the
+       * check-in does not happen, and the member is told why while they are
+       * still standing there and can try again.
+       *
+       * On a `self_attest` pact the photo was never the evidence, so losing it
+       * costs the crew nothing and trapping the member would be gratuitous.
+       */
+      if (view.rule.proof === "photo") {
+        // Which side of the session this was decides what is true afterwards:
+        // on the way in nothing exists, on the way out the session is still
+        // open and the member is still checked in.
+        say(photoUploadRefusalLine(reason, session ? "out" : "in"));
+        scrollToFoot();
+        return;
+      }
+      say(photoUploadSkippedLine(reason));
+      photoUrl = null;
+    }
 
     try {
       if (session) {
-        await mockCloseSession({ sessionId: session.sessionId, photoUrl });
+        await closeSession({
+          pactId: view.pactId,
+          sessionId: session.sessionId,
+          photoUrl,
+        });
         setSession(null);
         const after = await refresh();
         if (after.viewer) say(outlookLine(after.viewer.outlook));
       } else {
-        const { sessionId } = await mockOpenSession({
+        const { sessionId } = await openSession({
           pactId: view.pactId,
           userWallet: viewerWallet,
           photoUrl,
         });
         setElapsed(0);
-        setSession({ sessionId, startedAt: mockNow().getTime() });
+        setSession({ sessionId, startedAt: channelNow().getTime() });
         await refresh();
       }
     } catch (e) {
-      if (e instanceof MockSessionGuardError) {
+      if (e instanceof ChannelError) {
         // The refusal. The session stays open and the bot says how much longer.
         say(e.message);
       } else {
@@ -238,7 +309,7 @@ export function Channel({
     // Shown at once, then written. The same pure toggle runs on both sides, so
     // the optimistic row and the stored one cannot disagree.
     setItems((rows) => rows.map((row) => (row.id === itemId ? withReactionToggled(row, emoji) : row)));
-    await mockToggleReaction(view.pactId, itemId, emoji);
+    await toggleReaction(view.pactId, itemId, emoji, viewerWallet);
   }
 
   async function run(command: string) {
@@ -250,7 +321,13 @@ export function Channel({
         say(helpReply());
         break;
       case "status":
-        say(statusReply(view.bot));
+        // The week is not the answer to "where am I" when the week has not
+        // begun. Whoever has not staked yet is.
+        say(
+          view.funding
+            ? fundingReply(view.funding.staked, view.funding.of)
+            : statusReply(view.bot),
+        );
         break;
       case "crew":
         say(crewReply(view.bot));
@@ -258,6 +335,19 @@ export function Channel({
       case "stake":
         say(stakeReply(view.bot));
         break;
+      case "settle": {
+        // The parse is in lib/bot.ts and not inlined here, because it is the
+        // only thing standing between a mistyped command and a pact settled a
+        // week early. Anything it does not recognise is corrected rather than
+        // treated as a plain /settle.
+        const settling = parseSettle(argument);
+        if (!settling) {
+          say(settleUnknownArgumentReply(argument));
+          break;
+        }
+        void settle(settling.force);
+        break;
+      }
       case "invite":
         setQrOpen(true);
         say(inviteReply());
@@ -267,7 +357,7 @@ export function Channel({
           say(exemptNeedsReasonReply());
           break;
         }
-        await mockRequestExemption({
+        await requestExemption({
           pactId: view.pactId,
           userWallet: viewerWallet,
           periodKey: view.periodKey,
@@ -281,10 +371,51 @@ export function Channel({
     scrollToFoot();
   }
 
+  /**
+   * Closes the period. Safe to run twice -- who failed comes out of the
+   * sessions, not out of who typed it, and the settlement row is the mutex.
+   *
+   * `force` closes a period that has not ended yet, which marks everyone who
+   * has not finished by now as having missed and cannot be taken back. It is
+   * said out loud before the request rather than after it, so the member reads
+   * what it does while it is still doing it.
+   */
+  async function settle(force: boolean) {
+    say(force ? settlingForcedLine() : settlingLine());
+    try {
+      const res = await fetch(`/api/pacts/${view.pactId}/settle`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        say(settleFailedLine(typeof body.error === "string" ? body.error : "Try again."));
+        return;
+      }
+      // `failedCount` for the misses, `payouts.length` for the winners --
+      // payouts *are* the winners, which is why counting them as misses
+      // announced three in a crew of four where one missed. The winner count
+      // is what stops the bot promising a payout when there is nobody to pay.
+      say(
+        settledLine({
+          failed: body.failedCount ?? 0,
+          winners: body.payouts?.length ?? 0,
+          potUsdc: body.potUsdc ?? "0",
+        }),
+      );
+      await refresh();
+    } catch {
+      say(settleFailedLine("Could not reach the settlement."));
+    }
+    scrollToFoot();
+  }
+
   async function vote(approve: boolean) {
     const exemption = view.exemption;
     if (!exemption) return;
-    await mockCastVote({
+    await castVote({
       pactId: view.pactId,
       exemptionId: exemption.id,
       userWallet: viewerWallet,
@@ -295,6 +426,12 @@ export function Channel({
   }
 
   const me = view.viewer;
+  // Whichever side of the session is next is the one the reference belongs to:
+  // the check-in shot before a session exists, the check-out shot to close one
+  // already open. Both are optional -- every pact from before this existed has
+  // neither, and the block below renders nothing rather than an empty pill.
+  const referenceUrl = session ? view.rule.checkOutReferenceUrl : view.rule.checkInReferenceUrl;
+  const referenceDescription = view.rule.proofDescription;
 
   return (
     <>
@@ -313,7 +450,7 @@ export function Channel({
         <div className="mx-auto flex h-full w-full max-w-[46rem] items-center gap-3 px-5 sm:px-8">
           <p className="min-w-0 flex-1 truncate text-[14px] font-bold tracking-[-0.015em] text-ink">
             {view.name}
-            {me && (
+            {me && !view.funding && (
               <span className="figure ml-2 font-normal text-grey-on-ground">
                 {me.daysDone} of {me.required}
               </span>
@@ -374,7 +511,48 @@ export function Channel({
             </span>
           </div>
 
-          {me && (
+          {/* The money is in an account with an address, and the address is
+              public. Saying so here, next to the figures it belongs to, is the
+              cheapest honest answer to "where has my money gone" -- and the
+              only one that does not require taking our word for it. No copy
+              button: nobody sends here by hand, the stake flow does, so the
+              link is the whole affordance. */}
+          <p className="mt-3 text-[13px] leading-relaxed text-grey-on-ground">
+            Every stake sits in the crew&rsquo;s vault until it settles.{" "}
+            <a
+              href={`https://solscan.io/account/${view.vaultAddress}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="figure rounded-sm text-ink underline decoration-hairline underline-offset-4 transition-colors hover:decoration-ink"
+            >
+              {`${view.vaultAddress.slice(0, 4)}…${view.vaultAddress.slice(-4)}`}
+            </a>
+          </p>
+
+          {/* The most important fact on a pact that has not started, and the
+              one the screen used to omit entirely. A crew runs only once
+              everybody has staked -- lib/stake.ts is explicit that nobody
+              should be exposed to a rule the rest have not paid for -- so
+              until then the week below is a week nobody is being judged on.
+              The member who has paid deserves to know what they are waiting
+              for; the one who has not deserves to know they are the hold-up. */}
+          {view.funding && (
+            <p className="mt-7 max-w-[40ch] text-[15px] leading-relaxed text-ink">
+              <span className="figure font-semibold">
+                {view.funding.staked} of {view.funding.of}
+              </span>{" "}
+              staked. It starts when everyone has
+              {view.funding.staked === view.funding.of ? " arrived" : ""}.
+            </p>
+          )}
+
+          {/* A standing in a period that has not started. `startsAt` is null
+              until everybody has staked, so this counted down a week nobody was
+              in and marked seven days "nothing recorded" against a rule not yet
+              running -- directly under a line saying it had not started. While
+              the crew is still paying, the waiting line above is the whole of
+              what there is to say. */}
+          {me && !view.funding && (
             <div className="mt-9">
               <p className="figure text-[2.75rem] leading-[0.95] font-extrabold text-ink">
                 {me.daysDone}
@@ -428,12 +606,61 @@ export function Channel({
                 {elapsed === 1 ? "minute" : "minutes"} so far
               </p>
             )}
-            <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
-              <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
-              <div className="min-w-0 flex-1">
-                <CommandInput onSubmit={run} />
-              </div>
-            </div>
+            {/* Before the stake there is nothing to check in to, so the
+                composer is replaced rather than disabled: a camera you may not
+                use is a worse answer than the one thing you can do. */}
+            {needsStake ? (
+              <StakeSheet
+                pactId={view.pactId}
+                stakeLabel={view.stake}
+                viewerWallet={viewerWallet}
+              />
+            ) : (
+              <>
+                {/* What a good one looks like, above the control that takes it --
+                    state first, then the instruction, then the camera it instructs.
+                    Short instructions stay a tight pill like the status line above;
+                    a full 280-character one runs out of room to stay short and wraps
+                    across the same width as the composer below it. */}
+                {(referenceUrl || referenceDescription) && (
+                  <div
+                    className={cn(
+                      "mx-auto mb-2 flex w-fit items-center gap-2.5 rounded-full border border-hairline bg-panel py-1.5 shadow-panel",
+                      // Snug against the thumbnail on one side and roomy for text on
+                      // the other -- without a thumbnail there's nothing to sit snug
+                      // against, so it falls back to the status pill's even padding.
+                      referenceUrl ? "pl-1.5 pr-4" : "px-4",
+                    )}
+                  >
+                    {referenceUrl && (
+                      <img
+                        src={referenceUrl}
+                        alt="What the creator said a good one looks like"
+                        className="size-9 shrink-0 rounded-full object-cover"
+                      />
+                    )}
+                    {referenceDescription && (
+                      <p className="text-[13px] leading-snug text-grey-on-ground">
+                        {referenceDescription}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 rounded-full border border-hairline bg-panel p-1.5 shadow-panel">
+                  {/* Nothing to check into yet. A session recorded against a
+                      pact that has not started counts towards a period nobody
+                      is being judged on, and offering the button says the
+                      opposite of what the line above it says. The commands
+                      stay -- /invite is exactly what this member needs. */}
+                  {!view.funding && (
+                    <CheckInCamera label={session ? "Check out" : "Check in"} onCapture={capture} />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <CommandInput onSubmit={run} />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

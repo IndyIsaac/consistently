@@ -51,3 +51,27 @@ export function DashedRule({ className }: { className?: string }) {
     />
   );
 }
+
+/**
+ * One control, one height, and no border.
+ *
+ * Every field in a form column -- text, select, time, and the stepper -- is the
+ * same 44px pill. Mixed heights read as a ragged edge down the column before
+ * anyone can say why, and 44 is the smallest square a thumb reliably hits,
+ * which this being a phone product settles.
+ *
+ * Filled rather than outlined, because these sit inside a `Panel`, which is
+ * itself a hairline at a 22px radius. A hairline pill inside it puts two
+ * identical borders at two identical curves 24px apart, and the eye reads that
+ * as the field crowding the card no matter how exact the gutter is. `surface`
+ * separates the control from the card with a value instead of a second line.
+ *
+ * `px-5` and not less: at a 22px radius the corners are still turning at 16px
+ * in, so `px-4` sets the text and the chevron inside the curve rather than
+ * clear of it. That is what reads as a field crowding its own edge.
+ *
+ * No `outline-none`: the global `:focus-visible` rule in app/globals.css is
+ * the focus state, and it is the same one every other control in the product
+ * uses.
+ */
+export const FIELD = "h-11 rounded-full bg-surface px-5 text-[14px] text-ink transition-colors";

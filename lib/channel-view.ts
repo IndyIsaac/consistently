@@ -40,10 +40,16 @@ export type ChannelPactInput = {
   timezone: string;
   stakeAmount: number;
   stakeCurrency: string;
+  /** The pact's own Solana account. Public; the key that spends it is not. */
+  vaultAddress: string;
+  /** Prisma `PactStatus`. A pact runs only once everybody has staked. */
+  status: "funding" | "active" | "settled";
   crew: (LeaderRow & {
     initials: string;
     isViewer: boolean;
     sessions: SessionRecord[];
+    /** `Membership.status` -- who has actually paid. */
+    status: string;
   })[];
   viewerEarned: number;
   viewerLost: number;
@@ -94,6 +100,21 @@ export type ChannelView = {
   /** The whole crew's stake, formatted. */
   pot: string;
   settlesOn: string;
+  /**
+   * Null once the pact is running. While it is funding, how many of the crew
+   * have paid -- which is the whole of what the screen should be saying.
+   */
+  funding: { staked: number; of: number } | null;
+  /**
+   * Where the crew's money actually is, carried to a screen on purpose.
+   *
+   * The stakes sit in an account this server holds the key to, which
+   * docs/security/escrow-protocol.md states in its first sentence. A product
+   * that asks four friends to hand it money and then keeps the address to
+   * itself is asking for trust it has not earned; the address costs nothing to
+   * show and turns the claim into something a member can go and check.
+   */
+  vaultAddress: string;
   /** The Monday of the current crew-local week — what an exemption is asked about. */
   periodKey: string;
   crew: ChannelMember[];
@@ -110,6 +131,28 @@ export function settlesOn(timezone: string, now: Date): string {
 
 function firstNameOf(displayName: string): string {
   return displayName.split(" ")[0];
+}
+
+/**
+ * Whether the crew is still waiting on somebody's money, and how far off it is.
+ *
+ * Null once the pact is running, because then there is nothing to wait for and
+ * the standing block below says everything worth saying. While it is funding
+ * this is the most important fact on the screen and the channel did not carry
+ * it: a pact waiting on half its crew rendered exactly like one that had
+ * started, week grid and check-in and all.
+ *
+ * Somebody who left is not counted on either side. They owe nothing and their
+ * absence should not hold the rest of the crew.
+ */
+export function fundingStanding(
+  status: string,
+  crew: { status: string }[],
+): { staked: number; of: number } | null {
+  if (status !== "funding") return null;
+
+  const owing = crew.filter((m) => m.status !== "left");
+  return { staked: owing.filter((m) => m.status === "staked").length, of: owing.length };
 }
 
 export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
@@ -145,6 +188,8 @@ export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
     stake,
     pot,
     settlesOn: settles,
+    vaultAddress: pact.vaultAddress,
+    funding: fundingStanding(pact.status, pact.crew),
     periodKey: weekDayKeys(pact.timezone, now)[0],
     crew,
     viewer,

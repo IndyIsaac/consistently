@@ -1,15 +1,58 @@
 import { CrewTable, type CrewRowData } from "@/components/CrewTable";
-import { FieldLabel, Panel } from "@/components/Panel";
+import Link from "next/link";
+import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { PactCard } from "@/components/PactCard";
 import { formatMoney } from "@/lib/money";
-// MOCK: swap for the real dashboard query. See lib/mock-session.ts.
-import { getSession, type MockPact } from "@/lib/mock-session";
+import { getSession } from "@/lib/session";
+import type { PactView } from "@/lib/view";
 import { isTodayDone, spell, standingLine, weekDayMarks } from "@/lib/pact-view";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Dashboard · Consistently" };
 
-function crewRows(pact: MockPact, now: Date): CrewRowData[] {
+function FirstRun() {
+  return (
+    <div className="mx-auto w-full max-w-[54rem] px-5 pt-10 sm:px-8 sm:pt-14">
+      <h1 className="text-[clamp(2rem,7vw,3rem)] leading-[1.03] font-extrabold tracking-[-0.035em] text-balance text-ink">
+        Nothing at stake yet.
+      </h1>
+
+      <p className="mt-4 max-w-[42ch] text-[15px] leading-relaxed text-grey-on-ground">
+        A crew agrees one rule and everyone puts the same money up. Whoever
+        misses forfeits it to whoever did not, and nobody has to ask.
+      </p>
+
+      <Panel className="mt-9 max-w-[34rem]">
+        <FieldLabel>Two ways in</FieldLabel>
+
+        <div className="mt-4 flex flex-col gap-1">
+          <p className="text-[15px] text-ink">Agree the rule yourself.</p>
+          <p className="max-w-[40ch] text-[14px] leading-relaxed text-grey-on-ground">
+            You set what counts and what it costs, then hand round a code.
+          </p>
+        </div>
+
+        <Link
+          href="/pacts/new"
+          className="mt-5 inline-flex items-center justify-center rounded-full bg-ink px-7 py-3 text-[12px] tracking-[0.24em] text-ground uppercase transition-opacity hover:opacity-85"
+        >
+          Start a crew
+        </Link>
+
+        <DashedRule className="mt-7" />
+
+        <div className="mt-5 flex flex-col gap-1">
+          <p className="text-[15px] text-ink">Or somebody sends you a code.</p>
+          <p className="max-w-[40ch] text-[14px] leading-relaxed text-grey-on-ground">
+            Scanning it puts you in their crew, and asks you for your stake.
+          </p>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function crewRows(pact: PactView, now: Date): CrewRowData[] {
   return pact.crew.map((member, i) => {
     const marks = weekDayMarks(member.sessions, pact.ruleConfig, pact.timezone, now);
 
@@ -55,6 +98,17 @@ function crewRows(pact: MockPact, now: Date): CrewRowData[] {
 
 export default async function DashboardPage() {
   const { now, currency, pacts } = await getSession();
+
+  /**
+   * The first screen after the door, for somebody who has just arrived.
+   *
+   * Everything below assumes a crew: `Math.max()` over no pacts is -Infinity,
+   * the money figures are zero in the two colours reserved for money that
+   * moved, and the "Everyone" panel introduces two crews and then lists none.
+   * A ledger of nothing is a worse greeting than a sentence saying what this
+   * is for.
+   */
+  if (pacts.length === 0) return <FirstRun />;
 
   const earned = pacts.reduce((sum, p) => sum + p.viewerEarned, 0);
   const lost = pacts.reduce((sum, p) => sum + p.viewerLost, 0);

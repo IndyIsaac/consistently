@@ -19,7 +19,14 @@ import {
   type RuleConfig,
   type SessionRecord,
 } from "@/lib/rules";
-import { leaderboard, type LeaderRow } from "@/lib/stats";
+import { leaderboard } from "@/lib/stats";
+import type {
+  AppSession,
+  CrewMember,
+  PactView,
+  PendingExemption,
+  ViewerUser,
+} from "@/lib/view";
 
 /* ===========================================================================
  * ██  DEV-ONLY MOCK SESSION  ██
@@ -60,85 +67,17 @@ export const MOCK_NOW = new Date("2026-08-28T02:12:00.000Z"); // Fri 28 Aug 2026
 
 const TIMEZONE = "Asia/Bangkok";
 
-/** Prisma `User`. */
-export type MockUser = {
-  id: string;
-  privyId: string;
-  walletAddress: string;
-  displayName: string;
-  initials: string;
-};
+/* ---------------------------------------------------------------------------
+ * The shapes live in lib/view.ts, because the real queries have to satisfy the
+ * same ones. The `Mock*` names are kept as aliases so the README's account of
+ * this file -- and every existing import of them -- still reads true.
+ * ------------------------------------------------------------------------- */
 
-/** `LeaderRow` from lib/stats.ts, plus the Prisma `Membership` columns a row draws. */
-export type MockCrewMember = LeaderRow & {
-  /** Prisma `Membership.userId`. `memberId` (from LeaderRow) is the membership id. */
-  userId: string;
-  initials: string;
-  /** Prisma `MemberStatus`. */
-  status: "invited" | "staked" | "passed" | "failed" | "left";
-  isViewer: boolean;
-  /** Money forfeited across every settled period so far, in the pact's currency. */
-  forfeitedToDate: number;
-  /** Periods this member has forfeited in. */
-  forfeitedPeriods: number;
-  sessions: SessionRecord[];
-};
-
-/**
- * Prisma `Exemption`, plus the tally `castVote` returns and the one fact the
- * screen needs that neither carries on its own.
- *
- * There is no `GET /api/pacts/[id]/exemptions` yet — the route only accepts
- * `request` and `vote` — so this shape is the union of the Prisma columns and
- * the `{ status, approvals, needed }` that `castVote` resolves with. When the
- * read endpoint lands it should return exactly this.
- */
-export type MockExemption = {
-  id: string;
-  membershipId: string;
-  /** The Monday of the week being asked about, in the crew's timezone. */
-  periodKey: string;
-  reason: string;
-  /** Prisma `ExemptionStatus`. */
-  status: "pending" | "granted" | "denied";
-  createdAt: Date;
-  approvals: number;
-  needed: number;
-  requesterName: string;
-  /** Whether the viewer has a `Vote` row against this exemption. */
-  viewerVoted: boolean;
-};
-
-/** Prisma `Pact`, minus the columns no screen draws (vault, fx, invite plumbing). */
-export type MockPact = {
-  id: string;
-  name: string;
-  inviteToken: string;
-  ruleConfig: RuleConfig;
-  timezone: string;
-  stakeAmount: number;
-  stakeCurrency: string;
-  /** Prisma `PactStatus`. */
-  status: "funding" | "active" | "settled";
-  startsAt: Date;
-  /** Periods already settled — the weeks the money has actually moved for. */
-  settledPeriods: number;
-  crew: MockCrewMember[];
-  /** The viewer's `Membership.id` in this pact. */
-  viewerMemberId: string;
-  /** The viewer's take and loss in this pact, in `stakeCurrency`. */
-  viewerEarned: number;
-  viewerLost: number;
-  /** The one exemption still waiting on the crew, if there is one. */
-  pendingExemption: MockExemption | null;
-};
-
-export type MockSession = {
-  user: MockUser;
-  now: Date;
-  currency: string;
-  pacts: MockPact[];
-};
+export type MockUser = ViewerUser;
+export type MockCrewMember = CrewMember;
+export type MockExemption = PendingExemption;
+export type MockPact = PactView;
+export type MockSession = AppSession;
 
 // --- session fixtures -------------------------------------------------------
 
@@ -314,6 +253,13 @@ const PACTS: MockPact[] = [
     settledPeriods: 5,
     crew: buildCrew("five", GYM_CREW, GYM_SESSIONS, GYM_RULE),
     viewerMemberId: "mem_five_indy",
+    // The four the money path needs. The vault addresses are real base58 and
+    // hold nothing; the mock never builds a transaction, it only draws them.
+    vaultAddress: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+    // 1,000 THB at the 0.0285 rate the pact locked. Atomic units, six decimals.
+    stakeUsdc: "28500000",
+    viewerStatus: "staked",
+    viewerOpenSessionId: null,
     // Dave forfeited three weeks and Pim one; each ฿1,000 split three ways, the
     // indivisible remainder to the first winner.
     viewerEarned: 1333,
@@ -333,6 +279,13 @@ const PACTS: MockPact[] = [
     settledPeriods: 5,
     crew: buildCrew("cfa", CFA_CREW, CFA_SESSIONS, CFA_RULE),
     viewerMemberId: "mem_cfa_indy",
+    // The four the money path needs. The vault addresses are real base58 and
+    // hold nothing; the mock never builds a transaction, it only draws them.
+    vaultAddress: "3Nq8kYtLxV5wRb2mPfDa7ZcJhE4sXgUn6TqWyA9vKrBd",
+    // 1,000 THB at the 0.0285 rate the pact locked. Atomic units, six decimals.
+    stakeUsdc: "28500000",
+    viewerStatus: "staked",
+    viewerOpenSessionId: null,
     // Two members: a forfeited stake goes to the one person who kept the rule.
     viewerEarned: 2000,
     viewerLost: 0,

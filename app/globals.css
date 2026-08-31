@@ -261,6 +261,21 @@
     caret-color: var(--ink);
   }
 
+  /* The browser's own number spinners are two grey chevrons the size of a
+     grain of rice, in a value the palette does not contain, and on a phone
+     they are effectively untappable. Every number in this product is stepped
+     by components/Stepper.tsx instead. */
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
   .on-door input {
     caret-color: var(--door-ink);
   }

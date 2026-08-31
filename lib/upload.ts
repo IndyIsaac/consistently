@@ -1,0 +1,31 @@
+/* ---------------------------------------------------------------------------
+ * Putting an image somewhere every other device can read it.
+ *
+ * Three callers: the two reference slots on a rule, the avatar on a profile,
+ * and the camera in the channel. Every one of those photos is looked at by
+ * somebody who is not the person who took it -- another member on another
+ * phone, or a projector -- which is the whole reason this is a round trip to
+ * blob storage and not `URL.createObjectURL`. An object URL resolves only in
+ * the tab that made it and dies with it, so a `blob:` string written to the
+ * database is a broken image everywhere it matters and on a reload.
+ *
+ * It lived in three copies before this file, which is how the check-in photo
+ * ended up as the one that never got wired up.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Uploads one image and returns the URL every device can fetch it from.
+ *
+ * Throws with the route's own sentence, which the caller is expected to show
+ * rather than swallow: the commonest failure by far is a 503 because
+ * BLOB_READ_WRITE_TOKEN is unset, and "Photo upload is not configured" is
+ * something a person can act on where a silent no-op is not.
+ */
+export async function upload(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/uploads", { method: "POST", body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? "Upload failed.");
+  return body.url as string;
+}
