@@ -7,7 +7,7 @@ import { ArrowRight, TriangleAlert } from "lucide-react";
 import { DashedRule, FIELD, FieldLabel, Panel } from "@/components/Panel";
 import { Select } from "@/components/Select";
 import { RuleEditor } from "@/components/RuleEditor";
-import { currencySymbol } from "@/lib/money";
+import { CURRENCIES, currencySymbol } from "@/lib/money";
 import { ruleSentence } from "@/lib/pact-view";
 import type { RuleConfig } from "@/lib/rules";
 
@@ -39,7 +39,6 @@ const DEFAULT_RULE: RuleConfig = {
   durationPeriods: 12,
 };
 
-const CURRENCIES = ["USDC", "THB", "USD", "GBP", "EUR", "JPY"];
 
 const EXAMPLE = "Gym five days a week, thirty minutes minimum, photo in and photo out. ฿1,000 if you miss.";
 

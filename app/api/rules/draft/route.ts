@@ -23,7 +23,7 @@ const DraftSchema = z.object({
   name: z.string().describe("Short name for the pact, two to five words"),
   ruleConfig: RuleConfigSchema,
   stakeAmount: z.number().positive().describe("The amount each member puts up, as a number"),
-  stakeCurrency: z.string().length(3).describe("ISO 4217 code, e.g. THB, GBP, USD"),
+  stakeCurrency: z.string().describe("A currency code the app can write, e.g. USDC, THB, GBP, USD"),
 });
 
 export type Draft = {

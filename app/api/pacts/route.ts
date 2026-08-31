@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { RuleConfigSchema } from "@/lib/rules";
 import { createVault } from "@/lib/vault";
 import { fetchUsdRate, toUsdcAtomic } from "@/lib/fx";
+import { isSupportedCurrency } from "@/lib/money";
 import { z } from "zod";
 
 /**
@@ -16,7 +17,12 @@ const BodySchema = z.object({
   name: z.string().min(1).max(80),
   ruleConfig: RuleConfigSchema,
   stakeAmount: z.number().positive(),
-  stakeCurrency: z.string().length(3),
+  /**
+   * A set, not a length. `.length(3)` refused USDC -- four characters, and
+   * what the form opens on -- so the commonest pact anybody could make never
+   * reached this function body.
+   */
+  stakeCurrency: z.string().refine(isSupportedCurrency, "Not a currency a stake can be set in"),
   timezone: z.string().default("Asia/Bangkok"),
 });
 
@@ -33,7 +39,19 @@ export async function POST(req: NextRequest) {
 
   const parsed = BodySchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    /**
+     * A sentence, because a sentence is the only thing the caller can render.
+     * components/NewPact.tsx takes `error` when it is a string and otherwise
+     * falls back to "Could not create that pact." -- so a flattened Zod tree
+     * went to the member as that, and to the log as nothing at all, since this
+     * branch does not throw. The one failure with a cause worth naming was the
+     * one nobody could see.
+     */
+    const [field, messages] = Object.entries(parsed.error.flatten().fieldErrors)[0] ?? [];
+    return NextResponse.json(
+      { error: field ? `${field}: ${messages?.[0] ?? "is not valid"}` : "That pact is not valid." },
+      { status: 400 },
+    );
   }
   const b = parsed.data;
 
