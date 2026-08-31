@@ -204,12 +204,43 @@ const MOCK_AUTH: Auth = {
  * verdict, and its messages name its own internals. Both are turned into the
  * one sentence the door can show, in the product's voice.
  */
+/**
+ * How long either half of the email sign-in may take before the door stops
+ * waiting on it.
+ *
+ * Neither Privy call carries a deadline of its own, and the door's own limits
+ * -- SESSION_WAIT_MS, ARRIVAL_LIMIT_MS -- guard only what happens after one
+ * succeeds. So a request that never settles left `verifying` latched and
+ * `busy` true: the button reads CHECKING, refuses to be pressed again, and
+ * nothing in the component can reach the state that would say so. A browser
+ * reload was the only way out, which is not a thing to discover on a stage
+ * with the room's wifi.
+ *
+ * Twenty seconds is longer than a slow network and shorter than a member
+ * deciding the product is broken. `sendCode` in particular can wait on a
+ * captcha the app may have enabled, which is a real never-resolves candidate.
+ */
+const AUTH_DEADLINE_MS = 20_000;
+
+/** Distinguishable from any value Privy could resolve with. */
+const TIMED_OUT = Symbol("timed out");
+
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  // The annotation is load-bearing: without it the arrow widens to `symbol`
+  // and the race no longer narrows against TIMED_OUT at the call sites.
+  return Promise.race([work, pause(ms).then((): typeof TIMED_OUT => TIMED_OUT)]);
+}
+
 function privyAuth(privy: ReturnType<typeof useLoginWithEmail>): Auth {
   return {
     async sendCode(email) {
       if (!EMAIL_RE.test(email)) return "That is not an email address.";
       try {
-        await privy.sendCode({ email });
+        const sent = await withDeadline(privy.sendCode({ email }), AUTH_DEADLINE_MS);
+        // Not "could not be reached": it may yet arrive, and telling somebody
+        // their own address is unreachable when the network is the problem
+        // sends them to fix the wrong thing.
+        if (sent === TIMED_OUT) return "That is taking too long. Check your connection and try again.";
         return null;
       } catch {
         return "That address could not be reached. Try again.";
@@ -218,7 +249,15 @@ function privyAuth(privy: ReturnType<typeof useLoginWithEmail>): Auth {
     async verifyCode(code) {
       if (!new RegExp(`^\\d{${CODE_LENGTH}}$`).test(code)) return "That code is not six digits.";
       try {
-        await privy.loginWithCode({ code });
+        const verified = await withDeadline(privy.loginWithCode({ code }), AUTH_DEADLINE_MS);
+        /**
+         * Safe to give up on. If the sign-in did land after all, Privy flips
+         * `authenticated` and the effect watching `alreadyIn` takes them
+         * through -- so the worst this costs is a sentence they can ignore.
+         */
+        if (verified === TIMED_OUT) {
+          return "That is taking too long. Check your connection and try again.";
+        }
         return null;
       } catch {
         // Privy invalidates the code after five attempts and does not say which

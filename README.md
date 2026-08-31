@@ -214,6 +214,12 @@ The first two are the ones that matter for judging.
   load; `ANTHROPIC_API_KEY` unset means the rule drafter falls back to manual fields.
 - **Privy's cookies are `Secure`**, so a browser accepts them on `http://localhost` and not on
   `http://192.168.x.x`. The second-phone half of a demo has to run against HTTPS.
+- **Email and wallet sign-in make separate accounts.** Both doors call Privy's *login* methods,
+  not its linking ones, and a wallet login carries no email for `merge_accounts_by_email` to key
+  on. So one person who uses both becomes two members, in either order, with no collision and no
+  error: `walletAddress` is unique but the embedded and external addresses genuinely differ. The
+  second account lands on an empty dashboard, and the crews and staked money on the first are
+  invisible from it. Use one method per person until the doors link instead of logging in.
 
 ## Checks
 
