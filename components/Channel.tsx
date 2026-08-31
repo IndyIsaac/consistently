@@ -344,7 +344,7 @@ export function Channel({
     setItems((rows) => rows.map((row) => (row.id === itemId ? withReactionToggled(row, emoji) : row)));
 
     const stuck = await attempt(
-      () => toggleReaction(view.pactId, itemId, emoji, viewerWallet),
+      () => toggleReaction(view.pactId, itemId, emoji),
       "That reaction did not stick. Try again.",
     );
 

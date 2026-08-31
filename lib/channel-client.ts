@@ -186,11 +186,12 @@ export async function toggleReaction(
   pactId: string,
   itemId: string,
   emoji: string,
-  userWallet: string,
 ): Promise<{ on: boolean }> {
   if (!LIVE) return (await mock()).mockToggleReaction(pactId, itemId, emoji);
 
-  const body = await send(`/api/feed/${itemId}/react`, { userWallet, emoji });
+  // No wallet: the route takes it from the verified token now, and a body that
+  // can name who reacted is a body that can name somebody else.
+  const body = await send(`/api/feed/${itemId}/react`, { emoji });
   return { on: body.on as boolean };
 }
 
