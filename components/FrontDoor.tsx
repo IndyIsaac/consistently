@@ -57,6 +57,18 @@ const SESSION_COOKIE = "privy-token";
 
 /** Long enough for a slow round trip, short enough to still be an app. */
 const SESSION_WAIT_MS = 3_000;
+/**
+ * How long the threshold may cover the screen before it admits defeat.
+ *
+ * The wipe is a full-bleed rectangle of `bg-ground` with the door behind it,
+ * and it is only ever removed by this component unmounting -- which is what
+ * arriving somewhere else does. A navigation that never lands therefore has
+ * no upper bound at all: the curtain simply stays, and a member is looking at
+ * a blank page with nothing to read and nothing to press.
+ *
+ * Six seconds is longer than a slow dashboard and far shorter than patience.
+ */
+const ARRIVAL_LIMIT_MS = 6_000;
 const SESSION_POLL_MS = 60;
 
 /**
@@ -65,6 +77,9 @@ const SESSION_POLL_MS = 60;
  * writes this cookie SameSite=Strict -- so one that exists but was withheld
  * from a cross-site landing is carried by the second, same-site request.
  */
+const ARRIVAL_STALLED =
+  "You are signed in and this page did not move. Reload it and you will be through.";
+
 const SESSION_UNSEEN =
   "You are signed in and the server cannot see it. Reload the page. If that does not do it, this browser is not letting the cookie through.";
 
@@ -257,6 +272,9 @@ function Door({
    * decides, and a re-render is exactly what it must not wait for.
    */
   const navigating = useRef(false);
+  /** Cleared on unmount, which is the only good outcome. */
+  const stalled = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (stalled.current) clearTimeout(stalled.current); }, []);
 
   const cells = useRef<(HTMLInputElement | null)[]>([]);
   const verifying = useRef(false);
@@ -312,6 +330,13 @@ function Door({
     }
 
     router.push("/dashboard");
+
+    // Nothing here cancels this. Arriving unmounts the component and takes the
+    // timer with it, so it only ever fires when the navigation did not happen.
+    stalled.current = setTimeout(() => {
+      setError(ARRIVAL_STALLED);
+      setStep("stuck");
+    }, ARRIVAL_LIMIT_MS);
   }, [reduceMotion, router, serverSees]);
 
   /**
@@ -527,6 +552,30 @@ function Door({
                   onSuccess={arrive}
                 />
               </motion.form>
+            )}
+
+            {/* The state the door could always reach and could never show.
+                `stuck` is one of five Steps and was one of three scenes: the
+                threshold is removed when it is set, nothing below matches it,
+                and the member is left looking at an empty page holding a
+                sentence that was written for exactly this moment and had
+                nowhere to appear. */}
+            {scene === "stuck" && (
+              <motion.div key="stuck" {...sceneMotion}>
+                <p className="text-[11px] tracking-[0.24em] text-grey-on-door uppercase">
+                  Nearly
+                </p>
+
+                <FormError message={error} />
+
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-7 w-full rounded-full border border-door-ink/25 py-3.5 text-[12px] tracking-[0.24em] text-door-ink uppercase transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door"
+                >
+                  Reload
+                </button>
+              </motion.div>
             )}
 
             {scene === "code" && (
