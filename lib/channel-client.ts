@@ -140,10 +140,22 @@ export async function getPact(pactId: string): Promise<PactView | null> {
 export async function getChannel(pactId: string, viewerWallet: string): Promise<FeedItemDto[]> {
   if (!LIVE) return (await mock()).getChannel(pactId, viewerWallet);
 
-  const res = await fetch(
-    `/api/pacts/${pactId}/feed?viewer=${encodeURIComponent(viewerWallet)}`,
-  );
-  if (!res.ok) return [];
+  /**
+   * The bearer, for the same reason `send` carries one: the route authenticates
+   * now, and leaning on the `privy-token` cookie alone is what left members
+   * bounced off their own dashboard. No `?viewer=` -- the server takes the
+   * viewer from the token.
+   */
+  const token = await getAccessToken().catch(() => null);
+  const res = await fetch(`/api/pacts/${pactId}/feed`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    // Still an empty feed rather than a throw -- this runs on a poll, and a
+    // rejection here has no listener. But it no longer happens silently.
+    console.error(`feed fetch failed: ${res.status}`);
+    return [];
+  }
   return (await res.json()) as FeedItemDto[];
 }
 

@@ -519,7 +519,7 @@ function Door({
       setError(ARRIVAL_STALLED);
       setStep("stuck");
     }, ARRIVAL_LIMIT_MS);
-  }, [reduceMotion, router, serverSees]);
+  }, [reduceMotion, serverSees]);
 
   /**
    * A door is for people outside. Somebody already signed in and looking at it
