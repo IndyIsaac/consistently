@@ -293,7 +293,18 @@ export function Channel({
         // The refusal. The session stays open and the bot says how much longer.
         say(e.message);
       } else {
-        throw e;
+        /**
+         * Anything else is a bug, not a refusal -- but rethrowing put it in an
+         * unhandled rejection, because this is awaited by CheckInCamera inside
+         * a try/finally with no catch. The member watched the button un-busy
+         * and got no sentence, which is exactly what "the check-in button does
+         * nothing" looked like from the outside.
+         *
+         * The console keeps the real error for whoever is looking; the member
+         * gets told something happened either way.
+         */
+        console.error("[check-in] unexpected failure", e);
+        say("Something went wrong there. Try that again.");
       }
     }
     scrollToFoot();

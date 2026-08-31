@@ -1,5 +1,6 @@
 "use client";
 
+import { getAccessToken } from "@privy-io/react-auth";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import type { PactView } from "@/lib/view";
 
@@ -24,8 +25,20 @@ import type { PactView } from "@/lib/view";
  * 2. TELLING A REFUSAL FROM A FAULT. The routes already draw that line: a
  *    guard the member is meant to read comes back 400 with a sentence, and
  *    anything else is a generic 500 (Prisma's messages embed absolute source
- *    paths). `ChannelError` is the 400 half, and `Channel.capture()` already
- *    branches on exactly that distinction.
+ *    paths). `ChannelError` is the 400 half, and `Channel.capture()` branches
+ *    on exactly that distinction.
+ *
+ *    That line had a hole in it, and everything fell through: 401. It is not a
+ *    fault and it is not a guard, it is a session that aged out, and it was
+ *    thrown as a plain Error. `Channel.capture()` rethrows anything that is
+ *    not a `ChannelError`, and `CheckInCamera` awaits it with no catch -- so
+ *    the rejection went unhandled and the member was told nothing at all. A
+ *    channel left open past its token stopped checking in, checking out,
+ *    reacting and voting, silently, all five.
+ *
+ *    So every failure leaves here as a `ChannelError` now. Only the 400 keeps
+ *    the server's own sentence; the rest get one written here, because that is
+ *    what kept Prisma's absolute paths off the screen in the first place.
  * ------------------------------------------------------------------------- */
 
 const LIVE = (process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "").length > 0;
@@ -61,16 +74,41 @@ if (!LIVE) {
 }
 
 async function send(path: string, body: unknown): Promise<Record<string, unknown>> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  /**
+   * The bearer, not just the cookie.
+   *
+   * This sent neither, and leaned entirely on `privy-token`. But that cookie
+   * carries an access token with an expiry, and `privyIdFromCookie` verifies
+   * it -- so once it aged out the routes answered 401 and every button in the
+   * channel stopped working. The client SDK holds a fresh token the whole
+   * time; nothing was asking it for one. Onboarding and ProfileForm both
+   * already do exactly this, which is why they kept working.
+   */
+  const token = await getAccessToken().catch(() => null);
+
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // A phone at the back of a gym. Worth a sentence, not a stack trace.
+    throw new ChannelError("No connection. Try that again.");
+  }
+
   const json = await res.json().catch(() => ({}));
+  if (res.ok) return json as Record<string, unknown>;
 
   if (res.status === 400 && typeof json.error === "string") throw new ChannelError(json.error);
-  if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Request failed");
-  return json as Record<string, unknown>;
+  if (res.status === 401) {
+    throw new ChannelError("Your sign-in expired. Refresh the page and try that again.");
+  }
+  throw new ChannelError("That did not go through. Try again.");
 }
 
 /** See note 1 above. Silent, not loud, if it is missed. */
