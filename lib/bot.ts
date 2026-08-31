@@ -215,6 +215,14 @@ export type BotPact = {
   stake: string;
   /** Every staked member's stake together, e.g. "฿4,000". */
   pot: string;
+  /**
+   * How many have actually paid -- not how many are in the crew.
+   *
+   * `/stake` used to count the crew, which includes everybody invited who has
+   * not paid yet, so a funding pact with one payer and three invitations
+   * announced four stakes and a full vault. The money was not there.
+   */
+  staked: number;
   /** The crew-local day the period ends on, e.g. "Sunday". */
   settlesOn: string;
   crew: BotMember[];
@@ -237,7 +245,7 @@ export function crewReply(pact: BotPact): string {
 }
 
 export function stakeReply(pact: BotPact): string {
-  const staked = pact.crew.length;
+  const staked = pact.staked;
   const lines = [
     `${pact.stake} each. ${cap(spellNumber(staked))} staked, ${pact.pot} in the vault.`,
     `It settles ${pact.settlesOn}. Whoever misses pays whoever did not.`,

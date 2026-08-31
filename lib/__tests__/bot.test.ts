@@ -162,6 +162,7 @@ describe("the commands", () => {
     rule: gym,
     stake: "฿1,000",
     pot: "฿4,000",
+    staked: 3,
     settlesOn: "Sunday",
     viewerEarned: "฿1,333",
     viewerLost: "฿1,000",

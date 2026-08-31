@@ -145,6 +145,23 @@ function firstNameOf(displayName: string): string {
  * Somebody who left is not counted on either side. They owe nothing and their
  * absence should not hold the rest of the crew.
  */
+/**
+ * How many members have actually put money in the vault.
+ *
+ * `/stake` used to answer this with the size of the crew, which counts everyone
+ * invited whether or not they paid, so a funding pact with one payer and three
+ * invitations told the channel "Four staked, ฿4,000 in the vault." The vault
+ * held ฿1,000. The same count sizes the pot everywhere it is shown.
+ *
+ * Not `status === "staked"` alone: after a settlement a member is `passed` or
+ * `failed`, and both of them staked. fundingStanding below can use the narrower
+ * test because it only ever runs while the pact is still funding, when neither
+ * of those exists yet.
+ */
+export function paidCount(crew: { status: string }[]): number {
+  return crew.filter((m) => m.status !== "invited" && m.status !== "left").length;
+}
+
 export function fundingStanding(
   status: string,
   crew: { status: string }[],
@@ -174,7 +191,8 @@ export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
   const viewer = crew.find((m) => m.isViewer) ?? null;
   const settles = settlesOn(pact.timezone, now);
   const stake = formatMoney(pact.stakeAmount, pact.stakeCurrency);
-  const pot = formatMoney(pact.stakeAmount * pact.crew.length, pact.stakeCurrency);
+  const paid = paidCount(pact.crew);
+  const pot = formatMoney(pact.stakeAmount * paid, pact.stakeCurrency);
 
   const exemption = pact.pendingExemption;
 
@@ -197,6 +215,7 @@ export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
       rule: pact.ruleConfig,
       stake,
       pot,
+      staked: paid,
       settlesOn: settles,
       viewerEarned: formatMoney(pact.viewerEarned, pact.stakeCurrency),
       viewerLost: formatMoney(pact.viewerLost, pact.stakeCurrency),
