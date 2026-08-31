@@ -42,7 +42,16 @@ export function proxy(req: NextRequest) {
   if (invite) {
     const clean = new URL(url);
     clean.searchParams.delete("invite");
-    const res = NextResponse.redirect(clean);
+    /**
+     * Somebody already signed in has no onboarding left to walk them to /join,
+     * so send them there directly. Without this the scan sets the cookie, the
+     * rule below sends them to /dashboard because they are signed in, and the
+     * token sits there for an hour while they look at a dashboard the crew is
+     * not on -- which is the likeliest way anyone actually scans an invite:
+     * already a member, phone in hand.
+     */
+    const target = req.cookies.has(PRIVY_TOKEN) ? new URL("/join", url) : clean;
+    const res = NextResponse.redirect(target);
     res.cookies.set(INVITE_COOKIE, invite, {
       httpOnly: true,
       sameSite: "lax",

@@ -15,15 +15,36 @@ import { INVITE_COOKIE } from "@/proxy";
  * would bounce the member through this route on every visit for an hour.
  * ------------------------------------------------------------------------- */
 
-function to(path: string, req: NextRequest) {
-  const res = NextResponse.redirect(new URL(path, req.nextUrl));
+/**
+ * A relative Location, deliberately.
+ *
+ * `NextResponse.redirect` demands an absolute URL, and the only origin a route
+ * handler can see is the one the container was actually addressed on. Behind
+ * Railway that is `localhost:8080`, not the public host -- so a redirect built
+ * from `req.nextUrl` sent the member to a machine that is not theirs. The QR
+ * scan is the whole point of this route, and it was broken on every device
+ * except the server itself.
+ *
+ * The proxy builds redirects the same way and is fine, which is what made this
+ * hard to see: middleware rewrites its own Location to a relative path before
+ * it goes out. A route handler ships whatever it was handed.
+ *
+ * RFC 7231 allows a relative reference in Location, and the browser resolves it
+ * against the address it actually asked for -- which is the public one.
+ */
+function redirectTo(path: string) {
+  return new NextResponse(null, { status: 307, headers: { location: path } });
+}
+
+function to(path: string) {
+  const res = redirectTo(path);
   res.cookies.delete(INVITE_COOKIE);
   return res;
 }
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(INVITE_COOKIE)?.value;
-  if (!token) return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+  if (!token) return redirectTo("/dashboard");
 
   let user;
   try {
@@ -31,13 +52,13 @@ export async function GET(req: NextRequest) {
   } catch {
     // Signed out, or here before onboarding wrote a row. Either way /welcome is
     // the right room, and the invite stays set so it can be redeemed after.
-    return NextResponse.redirect(new URL("/welcome", req.nextUrl));
+    return redirectTo("/welcome");
   }
 
   try {
     const pact = await findOpenPact(token);
     const { pactId } = await addMember(pact.id, user.id);
-    return to(`/pacts/${pactId}`, req);
+    return to(`/pacts/${pactId}`);
   } catch (e) {
     if (e instanceof JoinError) {
       // The crew already started, or the link is dead. Neither is worth an
@@ -46,7 +67,7 @@ export async function GET(req: NextRequest) {
       // Not `?invite=` -- the proxy captures that parameter on any path and
       // would set the cookie straight back, from the very redirect that is
       // meant to clear it.
-      return to("/dashboard?crew=closed", req);
+      return to("/dashboard?crew=closed");
     }
     throw e;
   }
