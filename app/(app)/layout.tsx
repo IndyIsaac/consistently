@@ -9,7 +9,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // all; what is left for this file is the two it cannot see -- a token that
   // does not verify, and a wallet that has never held anything.
   const entry = await gate();
-  if (entry === "signed-out") redirect("/");
+  // /leave, not `/`: the proxy lets anyone holding a cookie back through, and
+  // gate() reaching "signed-out" means this one does not verify. Sending them
+  // to the door with it still set is the redirect loop. See app/leave/route.ts.
+  if (entry === "signed-out") redirect("/leave");
   if (entry === "needs-onboarding") redirect("/welcome");
 
   const { user } = await getSession();

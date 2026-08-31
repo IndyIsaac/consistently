@@ -8,7 +8,12 @@ import { useStandardWallets } from "@privy-io/react-auth/solana";
 
 import { TriangleAlert, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { phantomBrowseLink, walletPath } from "@/lib/door";
+import { phantomBrowseLink, walletPath,
+  type MarkStore,
+  clearBounced as doorClearBounced,
+  hasBounced as doorHasBounced,
+  markBounced as doorMarkBounced,
+} from "@/lib/door";
 
 /* ---------------------------------------------------------------------------
  * The front door, and the one surface that takes the inverse of the app's
@@ -319,39 +324,35 @@ const EMPTY_CODE = Array<string>(CODE_LENGTH).fill("");
  * attempt nobody can remember making is the first step of a loop, so this
  * reports failure and the caller stops.
  */
-const BOUNCE_KEY = "consistently:bounced-once";
+/**
+ * The three below wrap lib/door.ts, which holds the logic and the reasoning and
+ * is tested there. sessionStorage is read through a getter because touching it
+ * at module scope throws in a private-mode window before the component ever
+ * renders.
+ */
+function markStore(): MarkStore {
+  return sessionStorage;
+}
 
 function hasBounced(): boolean {
   try {
-    return sessionStorage.getItem(BOUNCE_KEY) === "1";
+    return doorHasBounced(markStore());
   } catch {
     return false;
   }
 }
 
-/**
- * Forget the failed attempt, because there is now a session to see.
- *
- * The mark means "this tab already bounced and it did not work". The moment
- * the cookie is visible that is no longer true, and leaving it set turns the
- * guard into the bug it was written to prevent: every later sign-in in the
- * same tab short-circuits to "reload the page" with nothing wrong. The module
- * variable this replaced was cleared by the document reload; sessionStorage
- * outlives one, so it has to be cleared on purpose.
- */
 function clearBounced(): void {
   try {
-    sessionStorage.removeItem(BOUNCE_KEY);
+    doorClearBounced(markStore());
   } catch {
-    // Nothing was stored, so there is nothing to forget.
+    // Nothing stored, nothing to forget.
   }
 }
 
-/** True when the attempt is on record and may therefore be made. */
 function markBounced(): boolean {
   try {
-    sessionStorage.setItem(BOUNCE_KEY, "1");
-    return sessionStorage.getItem(BOUNCE_KEY) === "1";
+    return doorMarkBounced(markStore());
   } catch {
     return false;
   }
