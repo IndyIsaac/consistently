@@ -94,5 +94,20 @@ export function leaderboard(
       currentStreak: currentStreak(e.sessions, rule, timezone, today),
       longestStreak: longestStreak(e.sessions, rule, timezone),
     }))
-    .sort((a, b) => b.daysDone - a.daysDone || b.currentStreak - a.currentStreak);
+    /**
+     * The last term is what makes this a ranking rather than a coin toss.
+     *
+     * Two members who have both done nothing tie on both counts, and a stable
+     * sort then hands the whole decision to input order -- which is Postgres
+     * row order, since nothing orders memberships. That is not merely
+     * arbitrary: staking UPDATEs the row, and an updated row can come back
+     * later in a scan, so a member's rank moved because they paid. Whatever
+     * this says, it has to say the same thing twice running.
+     */
+    .sort(
+      (a, b) =>
+        b.daysDone - a.daysDone ||
+        b.currentStreak - a.currentStreak ||
+        a.displayName.localeCompare(b.displayName),
+    );
 }

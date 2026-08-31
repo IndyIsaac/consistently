@@ -26,6 +26,26 @@ export async function openSession(params: {
     where: { pactId_userId: { pactId: pact.id, userId: user.id } },
   });
 
+  /**
+   * A pact that has not started has no period to check into.
+   *
+   * It runs only once everybody has staked -- lib/stake.ts is explicit that
+   * nobody should be exposed to a rule the rest of the crew has not paid for.
+   * A session opened before that counts towards a week nobody is being judged
+   * on, and towards a cadence that decides whose money moves.
+   *
+   * components/Channel.tsx stops offering the button while a crew is still
+   * paying. That is the affordance and not the rule: this route is reachable
+   * without it, and the check belongs where the row gets written.
+   */
+  if (pact.status !== "active") {
+    throw new SessionGuardError(
+      pact.status === "funding"
+        ? "This pact has not started. Everyone has to stake first."
+        : "This pact is settled. There is nothing left to check into.",
+    );
+  }
+
   const open = await prisma.session.findFirst({
     where: { membershipId: membership.id, endedAt: null },
   });

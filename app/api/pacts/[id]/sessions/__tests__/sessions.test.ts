@@ -20,6 +20,10 @@ async function fixture() {
       },
       stakeAmount: "1000", stakeCurrency: "THB", fxRateToUsd: "0.0285",
       fxFetchedAt: new Date(), stakeUsdc: 28_500_000n,
+      // Checking in is only possible once the crew has paid, which is what the
+      // product means by a pact running. These cases are all about what a
+      // session does, so they start from the state that allows one.
+      status: "active",
       vaultAddress: vault.publicKey, vaultSecretEnc: vault.secretEnc,
       memberships: { create: { userId: user.id, status: "staked" } },
     },

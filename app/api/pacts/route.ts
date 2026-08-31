@@ -16,7 +16,15 @@ import { z } from "zod";
 const BodySchema = z.object({
   name: z.string().min(1).max(80),
   ruleConfig: RuleConfigSchema,
-  stakeAmount: z.number().positive(),
+  /**
+   * A cent, not "greater than zero".
+   *
+   * `stakeAmount` is stored as Decimal(18, 2) and written with `.toFixed(2)`
+   * below, so anything under half a cent was accepted here and became 0.00 in
+   * the database: a pact whose stake is genuinely nothing, which can never
+   * forfeit and never pay out, created by a request the API said yes to.
+   */
+  stakeAmount: z.number().min(0.01, "A stake has to be at least 0.01"),
   /**
    * A set, not a length. `.length(3)` refused USDC -- four characters, and
    * what the form opens on -- so the commonest pact anybody could make never
