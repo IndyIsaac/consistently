@@ -8,6 +8,7 @@ import { useStandardWallets } from "@privy-io/react-auth/solana";
 
 import { TriangleAlert, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { walletPath } from "@/lib/door";
 
 /* ---------------------------------------------------------------------------
  * The front door, and the one surface that takes the inverse of the app's
@@ -201,6 +202,7 @@ function Door({
   auth,
   privyConfigured,
   wallets,
+  handoff,
   alreadyIn = false,
   awaitSession,
 }: {
@@ -208,6 +210,12 @@ function Door({
   privyConfigured: boolean;
   /** Null when there is no Privy app. Empty when nothing is installed. */
   wallets: WalletOption[] | null;
+  /**
+   * Opens Privy's own sheet, which is the only thing holding the WalletConnect
+   * entry and so the only way to reach Phantom on a phone. Absent on the
+   * zero-env-var path, where an empty list is never reached.
+   */
+  handoff?: () => void;
   /** Signed in already -- a returning tab, or a sign-in that did not navigate. */
   alreadyIn?: boolean;
   /**
@@ -471,7 +479,12 @@ function Door({
 
                 <SubmitButton busy={busy}>{busy ? "SENDING" : "CONTINUE"}</SubmitButton>
                 <OrRule />
-                <WalletOptions wallets={wallets} onFailure={setError} onSuccess={arrive} />
+                <WalletOptions
+                  wallets={wallets}
+                  handoff={handoff}
+                  onFailure={setError}
+                  onSuccess={arrive}
+                />
               </motion.form>
             )}
 
@@ -566,7 +579,7 @@ function Door({
  * it, and a fresh object every render would rebuild the callback mid-typing.
  */
 function PrivyDoor() {
-  const { ready: privyReady, authenticated, getAccessToken } = usePrivy();
+  const { ready: privyReady, authenticated, getAccessToken, login } = usePrivy();
   const privy = useLoginWithEmail();
   const auth = useMemo(() => privyAuth(privy), [privy]);
 
@@ -583,6 +596,20 @@ function PrivyDoor() {
    * with in the first place.
    */
   const waitForSession = useCallback(() => sessionVisible(getAccessToken), [getAccessToken]);
+
+  /**
+   * The one place the door gives up its own language, and only when staying in
+   * it would mean offering nothing.
+   *
+   * Privy's sheet is scoped to the half the door cannot do itself -- wallets,
+   * on this chain -- so the email field above it is not offered twice. Nothing
+   * is passed back: a sheet that signs in flips `authenticated`, `alreadyIn`
+   * follows, and the effect that already waits on the cookie does the arriving.
+   */
+  const handoff = useCallback(
+    () => login({ loginMethods: ["wallet"], walletChainType: "solana-only" }),
+    [login],
+  );
 
   /**
    * Sign-In With Solana, by hand.
@@ -677,6 +704,7 @@ function PrivyDoor() {
       auth={auth}
       privyConfigured
       wallets={wallets}
+      handoff={handoff}
       alreadyIn={privyReady && authenticated}
       awaitSession={waitForSession}
     />
@@ -756,18 +784,24 @@ function OrRule() {
  * The reasoning stands and the conclusion flipped: there is something behind
  * it now.
  */
+const WALLET_BUTTON =
+  "flex w-full items-center justify-center gap-2.5 rounded-full border border-door-ink/25 py-3.5 text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-door-ink/25 disabled:hover:bg-transparent disabled:hover:text-door-ink";
+
 function WalletOptions({
   wallets,
+  handoff,
   onFailure,
   onSuccess,
 }: {
   wallets: WalletOption[] | null;
+  handoff?: () => void;
   onFailure: (message: string) => void;
   onSuccess: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const path = walletPath(wallets);
 
-  if (wallets === null) {
+  if (path === "unconfigured") {
     return (
       <p className="text-center text-[12px] leading-relaxed text-grey-on-door">
         Connecting a wallet needs a Privy app id.
@@ -775,17 +809,25 @@ function WalletOptions({
     );
   }
 
-  if (wallets.length === 0) {
+  /**
+   * Nothing announced itself: a phone, or a desktop with no extension. What
+   * stood here was a sentence, and it was true in the only sense that did not
+   * matter -- this browser has no wallet -- to a member holding Phantom on the
+   * same device. Privy's sheet is the way to it, so the door offers that
+   * instead of narrating a dead end.
+   */
+  if (path === "handoff") {
     return (
-      <p className="text-center text-[12px] leading-relaxed text-grey-on-door">
-        No Solana wallet in this browser. The line above makes you one.
-      </p>
+      <button type="button" onClick={handoff} className={WALLET_BUTTON}>
+        <Wallet className="size-3.5" aria-hidden="true" />
+        <span className="text-[13px] tracking-[0.04em]">Connect a wallet</span>
+      </button>
     );
   }
 
   return (
     <div className="flex flex-col gap-2">
-      {wallets.map((wallet) => (
+      {(wallets ?? []).map((wallet) => (
         <button
           key={wallet.name}
           type="button"
@@ -802,7 +844,7 @@ function WalletOptions({
             if (failure) onFailure(failure);
             else onSuccess();
           }}
-          className="flex w-full items-center justify-center gap-2.5 rounded-full border border-door-ink/25 py-3.5 text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-door-ink/25 disabled:hover:bg-transparent disabled:hover:text-door-ink"
+          className={WALLET_BUTTON}
         >
           {wallet.icon ? (
             // The wallet's own mark, from its own registry entry. Next's Image
