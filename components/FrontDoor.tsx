@@ -220,11 +220,6 @@ const MOCK_AUTH: Auth = {
 };
 
 /**
- * Privy throws on a bad address or a wrong code rather than resolving with a
- * verdict, and its messages name its own internals. Both are turned into the
- * one sentence the door can show, in the product's voice.
- */
-/**
  * How long either half of the email sign-in may take before the door stops
  * waiting on it.
  *
@@ -251,6 +246,11 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | typeof
   return Promise.race([work, pause(ms).then((): typeof TIMED_OUT => TIMED_OUT)]);
 }
 
+/**
+ * Privy throws on a bad address or a wrong code rather than resolving with a
+ * verdict, and its messages name its own internals. Both are turned into the
+ * one sentence the door can show, in the product's voice.
+ */
 function privyAuth(privy: ReturnType<typeof useLoginWithEmail>): Auth {
   return {
     async sendCode(email) {

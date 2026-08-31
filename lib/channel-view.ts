@@ -1,5 +1,6 @@
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import type { BotPact } from "@/lib/bot";
+import { ELIGIBLE_STATUS_SET } from "@/lib/exemptions";
 import { formatMoney } from "@/lib/money";
 import {
   daysLeft,
@@ -153,13 +154,20 @@ function firstNameOf(displayName: string): string {
  * invitations told the channel "Four staked, ฿4,000 in the vault." The vault
  * held ฿1,000. The same count sizes the pot everywhere it is shown.
  *
- * Not `status === "staked"` alone: after a settlement a member is `passed` or
- * `failed`, and both of them staked. fundingStanding below can use the narrower
- * test because it only ever runs while the pact is still funding, when neither
- * of those exists yet.
+ * It reuses the electorate's list rather than writing a second one. That list
+ * already means "has money in this pact" -- it is why `passed` and `failed`
+ * are on it and `invited` is not -- and lib/exemptions.ts says in as many words
+ * that keeping such lists separate is how a numerator and a denominator start
+ * describing different populations. How much is in the vault is the same
+ * question as who may vote on letting somebody off, asked about money.
+ *
+ * fundingStanding below can keep its narrower `status === "staked"` test: it
+ * only ever runs while the pact is funding, when `passed` and `failed` cannot
+ * exist yet.
  */
 export function paidCount(crew: { status: string }[]): number {
-  return crew.filter((m) => m.status !== "invited" && m.status !== "left").length;
+  const paid: ReadonlySet<string> = ELIGIBLE_STATUS_SET;
+  return crew.filter((m) => paid.has(m.status)).length;
 }
 
 export function fundingStanding(
