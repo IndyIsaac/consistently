@@ -9,9 +9,13 @@ piece can be built. Written to be picked up cold on another machine.
 
 ```bash
 npm install
-npx prisma generate      # npm 11 skips it; the app will not build without it
+npx prisma generate              # npm 11 skips it; the app will not run without it
+npx playwright install chromium  # the browser is not in node_modules
 npm run capture -- --serve
 ```
+
+All three of the first lines are needed on a fresh clone. `prisma generate` and the Chromium
+download are the two that are easy to forget and fail loudly rather than usefully.
 
 One command, about ninety seconds, no interaction. It starts its own `next dev`, drives a real
 Chromium through the product, records, and kills the server behind it. Last run: **17 beats, 0
@@ -151,8 +155,27 @@ and a beat sheet comes back for approval before anything is shot.
 - Extend `SCENES` in `scripts/capture-demo.ts` with whatever the answers add — the stake sheet, the
   invite QR, `/settle`, a dark-mode pass.
 - Take `docs/demo/raw/video.webm` into an editor for zooms, a device mockup and a background.
-  OpenVid is cloned at `../openvid` (run `pnpm dev --port 3001`); the hosted one is at openvid.dev.
-  Note its licence is **PolyForm Noncommercial 1.0.0**, which restricts use of the software — not
-  the video made with it — and a commercial pitch sits in a grey area.
+
+  The editor picked was **OpenVid**. The hosted one at openvid.dev needs nothing. To run it
+  locally it has to be cloned separately — it is not part of this repo and does not arrive with a
+  pull:
+
+  ```bash
+  git clone https://github.com/CristianOlivera1/openvid.git
+  cd openvid && pnpm install
+  cp .env.example .env      # then see below
+  pnpm dev --port 3001      # 3001, so `next dev` here keeps 3000
+  ```
+
+  It will not boot without Supabase values: `utils/supabase/{client,server,middleware}.ts` each
+  throw at module load, and `proxy.ts` imports the middleware one, so every route 500s. Nothing on
+  the anonymous editor path actually calls Supabase, so URL-shaped placeholders are enough —
+  `NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co` and any non-empty anon key. The
+  Unsplash/Pexels/Pixabay keys are genuinely optional; blank just empties those three background
+  pickers. Editor lives at `/en/editor`.
+
+  Its licence is **PolyForm Noncommercial 1.0.0**, which restricts use of the software — not the
+  video made with it — and a commercial pitch sits in a grey area. Worth a decision, not a
+  surprise.
 - Do not bake a device frame into the capture. The editor adds one, and a frame in the footage
   cannot be taken out again.
