@@ -146,6 +146,25 @@ export const COMMANDS: { name: string; arg?: string; hint: string }[] = [
   { name: "help", hint: "this" },
 ];
 
+/**
+ * Whether Enter should complete to the highlighted command rather than run
+ * what is typed.
+ *
+ * The list opens on focus, so with an empty field every command matches and
+ * the highlight sits on the first of them -- `status`. Enter then ran it, and
+ * a member who tapped the field and pressed Enter got an answer to a question
+ * they never asked, with nothing on screen to say why. The submit button had
+ * refused an empty field since it was written; only this path did not.
+ *
+ * Lives here rather than in the component because the component cannot be
+ * rendered in a node test environment, and this is the part worth pinning.
+ */
+export function enterTakesSuggestion(value: string, suggestion: string | undefined): boolean {
+  const typed = value.trim();
+  if (typed.length === 0 || suggestion === undefined) return false;
+  return typed !== suggestion;
+}
+
 export function helpReply(): string {
   return [
     `${cap(spellNumber(COMMANDS.length))} commands. Nothing else is a message.`,

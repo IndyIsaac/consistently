@@ -3,7 +3,7 @@
 import { useId, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ArrowUp } from "lucide-react";
-import { COMMANDS } from "@/lib/bot";
+import { COMMANDS, enterTakesSuggestion } from "@/lib/bot";
 import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
@@ -80,9 +80,12 @@ export function CommandInput({
     } else if (e.key === "Tab") {
       e.preventDefault();
       type(matches[active].name);
-    } else if (e.key === "Enter" && value.trim() !== matches[active].name) {
+    } else if (e.key === "Enter" && enterTakesSuggestion(value, matches[active]?.name)) {
       // Enter takes the highlighted suggestion unless what is typed is already
-      // that command in full, in which case it runs it.
+      // that command in full, in which case it runs it -- or unless nothing is
+      // typed at all, in which case it takes nothing. The list is open from the
+      // moment the field is focused, so an empty field matches every command
+      // and highlights the first; Enter used to run it.
       e.preventDefault();
       submit(matches[active].name);
     }
