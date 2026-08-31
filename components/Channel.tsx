@@ -29,6 +29,7 @@ import {
   settlingLine,
   outlookLine,
   stakeReply,
+  fundingReply,
   statusReply,
   unknownCommandReply,
 } from "@/lib/bot";
@@ -320,7 +321,13 @@ export function Channel({
         say(helpReply());
         break;
       case "status":
-        say(statusReply(view.bot));
+        // The week is not the answer to "where am I" when the week has not
+        // begun. Whoever has not staked yet is.
+        say(
+          view.funding
+            ? fundingReply(view.funding.staked, view.funding.of)
+            : statusReply(view.bot),
+        );
         break;
       case "crew":
         say(crewReply(view.bot));
@@ -443,7 +450,7 @@ export function Channel({
         <div className="mx-auto flex h-full w-full max-w-[46rem] items-center gap-3 px-5 sm:px-8">
           <p className="min-w-0 flex-1 truncate text-[14px] font-bold tracking-[-0.015em] text-ink">
             {view.name}
-            {me && (
+            {me && !view.funding && (
               <span className="figure ml-2 font-normal text-grey-on-ground">
                 {me.daysDone} of {me.required}
               </span>
@@ -539,7 +546,13 @@ export function Channel({
             </p>
           )}
 
-          {me && (
+          {/* A standing in a period that has not started. `startsAt` is null
+              until everybody has staked, so this counted down a week nobody was
+              in and marked seven days "nothing recorded" against a rule not yet
+              running -- directly under a line saying it had not started. While
+              the crew is still paying, the waiting line above is the whole of
+              what there is to say. */}
+          {me && !view.funding && (
             <div className="mt-9">
               <p className="figure text-[2.75rem] leading-[0.95] font-extrabold text-ink">
                 {me.daysDone}

@@ -165,6 +165,21 @@ export function enterTakesSuggestion(value: string, suggestion: string | undefin
   return typed !== suggestion;
 }
 
+/**
+ * What /status answers before the pact has started.
+ *
+ * It used to answer with the week -- "0 of 1 this week. Seven days left." --
+ * and there is no week. `startsAt` is null until everybody has staked, so the
+ * period being counted down has not begun and nobody is being judged in it.
+ * The member asking is waiting on somebody else's money, and that is the only
+ * answer worth giving them.
+ */
+export function fundingReply(staked: number, of: number): string {
+  return staked === of
+    ? `${staked} of ${of} staked. It starts the moment that lands.`
+    : `${staked} of ${of} staked. Nothing starts until everyone has.`;
+}
+
 export function helpReply(): string {
   return [
     `${cap(spellNumber(COMMANDS.length))} commands. Nothing else is a message.`,

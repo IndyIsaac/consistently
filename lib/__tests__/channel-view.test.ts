@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fundingStanding } from "@/lib/channel-view";
+import { fundingReply } from "@/lib/bot";
 
 /* ---------------------------------------------------------------------------
  * Whether the crew is still waiting on somebody's money.
@@ -34,5 +35,23 @@ describe("what the channel says about funding", () => {
       staked: 1,
       of: 1,
     });
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * What /status says before the pact has started.
+ *
+ * It answered with the week: "0 of 1 this week. Seven days left. One to go."
+ * There is no week. `startsAt` is null until everybody has staked, so the
+ * period being counted down has not begun and the member is not in it.
+ * ------------------------------------------------------------------------- */
+
+describe("what the bot says while a pact is funding", () => {
+  it("names who is still to pay, not a week nobody is in", () => {
+    expect(fundingReply(1, 2)).toBe("1 of 2 staked. Nothing starts until everyone has.");
+  });
+
+  it("says so plainly when the money is all in but the pact has not flipped", () => {
+    expect(fundingReply(2, 2)).toBe("2 of 2 staked. It starts the moment that lands.");
   });
 });
