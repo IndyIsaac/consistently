@@ -125,6 +125,38 @@ function serverCanSeeSession() {
  * token call is raced against the deadline so a hung refresh cannot hold the
  * door shut.
  */
+/**
+ * Ask the server to set the cookie, because this browser did not.
+ *
+ * Privy writes `privy-token` from JavaScript with the token's own `exp` as an
+ * absolute date, and a machine whose clock runs fast discards it on arrival.
+ * Railway's HTTP logs caught it exactly: signed in, sent to /dashboard,
+ * bounced back by proxy.ts with no cookie, four times over. The token was
+ * valid throughout -- it simply never reached us.
+ *
+ * app/api/session verifies that token the same way every other route does and
+ * sets the cookie with `Max-Age`, which no browser compares against its own
+ * clock. Nothing is granted that the caller did not already hold.
+ *
+ * Only ever reached after the ordinary check has failed, so a member for whom
+ * Privy's own write worked never comes near it.
+ */
+async function askServerForCookie(getAccessToken: () => Promise<string | null>) {
+  try {
+    const token = await getAccessToken();
+    if (!token) return false;
+
+    const res = await fetch("/api/session", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    return res.ok && serverCanSeeSession();
+  } catch {
+    // The fallback failing leaves the member exactly where they already were.
+    return false;
+  }
+}
+
 async function sessionVisible(getAccessToken: () => Promise<string | null>) {
   const deadline = Date.now() + SESSION_WAIT_MS;
 
@@ -135,7 +167,11 @@ async function sessionVisible(getAccessToken: () => Promise<string | null>) {
   }
 
   while (!serverCanSeeSession()) {
-    if (Date.now() >= deadline) return false;
+    if (Date.now() >= deadline) {
+      // Privy's own write never landed. Ask the server to do it, which is the
+      // one version of this that no browser clock can spoil.
+      return askServerForCookie(getAccessToken);
+    }
     await pause(SESSION_POLL_MS);
   }
   return true;
