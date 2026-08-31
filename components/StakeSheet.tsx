@@ -102,8 +102,23 @@ export function StakeSheet({
   const [error, setError] = useState<string | null>(null);
   const [rehearsed, setRehearsed] = useState(false);
 
+  /**
+   * Every request this screen makes, with an upper bound on the wait.
+   *
+   * Without one, a network that hangs rather than fails leaves this sheet in
+   * whatever state it was mid-way through: "Pricing it." with a dead button, or
+   * "Staking" with a disabled one. Neither has a retry and neither says
+   * anything, so a reload is the only way out -- of the screen that asks for
+   * money.
+   *
+   * The submit step gets a longer one on purpose. The server bounds its own
+   * confirmation at ninety seconds (lib/solana.ts), and a client that gave up
+   * first would leave a member who cannot tell whether their stake went
+   * through -- which is exactly how somebody pays twice. This waits for the
+   * server to finish being sure, then stops.
+   */
   const post = useCallback(
-    async (body: unknown) => {
+    async (body: unknown, timeoutMs = 20_000) => {
       const authToken = await getAccessToken();
       const res = await fetch(`/api/pacts/${pactId}/stake`, {
         method: "POST",
@@ -112,6 +127,7 @@ export function StakeSheet({
           ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       return { res, body: await res.json().catch(() => ({})) };
     },
@@ -123,9 +139,31 @@ export function StakeSheet({
     (async () => {
       const { res, body } = await post({ step: "quote", inputMint: token.mint });
       if (cancelled) return;
-      if (res.ok) setPriced({ mint: token.mint, quote: body as Quote });
-      else setError(typeof body.error === "string" ? body.error : null);
-    })().catch(() => {});
+      if (res.ok) {
+        setPriced({ mint: token.mint, quote: body as Quote });
+        setError(null);
+        return;
+      }
+      /**
+       * Never `null` on a failure. A 502 from a proxy is not JSON, so `body` is
+       * `{}` and this used to set the error to nothing at all -- leaving the
+       * copy on "Pricing it." and the Stake button greyed out with no sentence
+       * anywhere on the screen and no way to try again.
+       */
+      setError(
+        typeof body.error === "string" ? body.error : "Could not price that. Try again in a moment.",
+      );
+    })().catch((e) => {
+      if (cancelled) return;
+      // Swallowed entirely before this, which is the same dead screen arrived
+      // at from the other direction -- a hung network rather than a refused one.
+      console.error("stake quote failed:", e);
+      setError(
+        e instanceof DOMException && e.name === "TimeoutError"
+          ? "That is taking too long. Check your connection and try again."
+          : "Could not price that. Try again in a moment.",
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -167,13 +205,18 @@ export function StakeSheet({
         wallet,
       });
 
-      const done = await post({
-        step: "submit",
-        signedTx: bytesToB64(signedTransaction),
-        lastValidBlockHeight: built.body.lastValidBlockHeight,
-        kind: built.body.kind,
-        payoutMint: payout.mint,
-      });
+      const done = await post(
+        {
+          step: "submit",
+          signedTx: bytesToB64(signedTransaction),
+          lastValidBlockHeight: built.body.lastValidBlockHeight,
+          kind: built.body.kind,
+          payoutMint: payout.mint,
+        },
+        // Longer than the server's own ninety-second confirmation, so this
+        // waits for it to finish being sure rather than giving up first.
+        120_000,
+      );
 
       if (done.res.status === 202) {
         // Already broadcast. Retrying would stake twice, so this stops here and
@@ -195,8 +238,22 @@ export function StakeSheet({
         return;
       }
       router.refresh();
-    } catch {
-      setError("That did not go through.");
+    } catch (e) {
+      /**
+       * A timeout is not a refusal, and must not be described as one.
+       *
+       * "That did not go through" invites a second attempt, and by this point
+       * the transaction may well have been broadcast -- the same hazard the 202
+       * branch above exists to head off. A stake paid twice is not returned by
+       * settling: each winner gets one principal back and the duplicate is
+       * split among the crew as forfeited money.
+       */
+      console.error("stake failed:", e);
+      setError(
+        e instanceof DOMException && e.name === "TimeoutError"
+          ? "We lost the connection before this was confirmed. Check the pact before trying again."
+          : "That did not go through.",
+      );
     } finally {
       setBusy(false);
     }

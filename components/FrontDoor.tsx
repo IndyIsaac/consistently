@@ -148,12 +148,23 @@ function serverCanSeeSession() {
  */
 async function askServerForCookie(getAccessToken: () => Promise<string | null>) {
   try {
-    const token = await getAccessToken();
-    if (!token) return false;
+    /**
+     * Both halves are bounded, and neither was.
+     *
+     * This runs only after the ordinary check has already spent three seconds
+     * failing, so by construction it is the bad-network path -- and the race
+     * further up bounds the first token call, not these. A hang here left the
+     * button reading CHECKING and disabled for good, or, with motion on, a
+     * full-screen wipe with nothing behind it: ARRIVAL_LIMIT_MS is armed after
+     * the navigation, and the navigation is what never happens.
+     */
+    const token = await withDeadline(getAccessToken(), AUTH_DEADLINE_MS);
+    if (token === TIMED_OUT || !token) return false;
 
     const res = await fetch("/api/session", {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(AUTH_DEADLINE_MS),
     });
     return res.ok && serverCanSeeSession();
   } catch {

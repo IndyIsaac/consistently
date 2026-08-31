@@ -73,6 +73,12 @@ if (!LIVE) {
   });
 }
 
+/**
+ * How long any one channel action may take. Long enough for a slow phone on a
+ * gym's wifi, short enough that a member finds out rather than waits.
+ */
+const REQUEST_DEADLINE_MS = 20_000;
+
 async function send(path: string, body: unknown): Promise<Record<string, unknown>> {
   /**
    * The bearer, not just the cookie.
@@ -95,10 +101,24 @@ async function send(path: string, body: unknown): Promise<Record<string, unknown
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(body),
+      /**
+       * The catch below handles a network that refuses. It does nothing at all
+       * for one that hangs, and this is the transport for every action in the
+       * channel -- check in, check out, react, ask to be let off, vote. The
+       * check-in button sets "Posting" and disables itself, and its `finally`
+       * cannot run on a promise that never settles, so the product's primary
+       * action ended as a permanently dead button on the phone of somebody
+       * standing in a gym on bad wifi. Reload was the only way out.
+       */
+      signal: AbortSignal.timeout(REQUEST_DEADLINE_MS),
     });
-  } catch {
+  } catch (e) {
     // A phone at the back of a gym. Worth a sentence, not a stack trace.
-    throw new ChannelError("No connection. Try that again.");
+    throw new ChannelError(
+      e instanceof DOMException && e.name === "TimeoutError"
+        ? "That is taking too long. Try again in a moment."
+        : "No connection. Try that again.",
+    );
   }
 
   const json = await res.json().catch(() => ({}));
