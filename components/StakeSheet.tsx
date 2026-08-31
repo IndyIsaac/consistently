@@ -31,7 +31,22 @@ const MINTS = [
 /** Atomic units to a readable figure. Trailing zeroes are noise on a price. */
 function amount(atomic: string, decimals: number): string {
   const n = Number(atomic) / 10 ** decimals;
-  return n.toLocaleString("en-US", { maximumFractionDigits: decimals === 6 ? 2 : 4 });
+  const written = n.toLocaleString("en-US", {
+    maximumFractionDigits: decimals === 6 ? 2 : 4,
+  });
+
+  /**
+   * A quote that rounds away is worse than a long one.
+   *
+   * Two fraction digits is right for a price and wrong for a small one: a
+   * stake under a cent renders "0 USDC, sent straight to the crew's vault" on
+   * the screen that asks somebody to hand over money. Whatever it costs, it
+   * does not cost nothing, and the figure has to say so.
+   */
+  if (n > 0 && Number(written.replace(/,/g, "")) === 0) {
+    return n.toLocaleString("en-US", { maximumSignificantDigits: 2 });
+  }
+  return written;
 }
 
 function b64ToBytes(b64: string): Uint8Array {
