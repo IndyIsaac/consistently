@@ -13,6 +13,8 @@
  * ended up as the one that never got wired up.
  * ------------------------------------------------------------------------- */
 
+import { getAccessToken } from "@privy-io/react-auth";
+
 /**
  * Uploads one image and returns the URL every device can fetch it from.
  *
@@ -22,9 +24,28 @@
  * something a person can act on where a silent no-op is not.
  */
 export async function upload(file: File): Promise<string> {
+  /**
+   * The bearer, not just the cookie.
+   *
+   * /api/uploads calls requireUser, and this sent no Authorization header --
+   * so it stood entirely on `privy-token`, whose access token has an expiry
+   * that privyIdFromCookie verifies. Once that aged out the route answered
+   * 401 "Not signed in", and since this is the FIRST call a check-in makes,
+   * it failed before the session request was ever attempted.
+   *
+   * lib/channel-client.ts had the identical bug. Onboarding and ProfileForm
+   * never did, which is why those two kept working throughout.
+   */
+  const token = await getAccessToken().catch(() => null);
+
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch("/api/uploads", { method: "POST", body: form });
+  // No content-type: the browser has to set the multipart boundary itself.
+  const res = await fetch("/api/uploads", {
+    method: "POST",
+    headers: token ? { authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? "Upload failed.");
   return body.url as string;
