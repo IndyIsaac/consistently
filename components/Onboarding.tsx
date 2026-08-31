@@ -40,6 +40,16 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
 
   const [address, setAddress] = useState<string | null>(null);
   const [funded, setFunded] = useState(false);
+  /**
+   * Whether the wallet has been looked at yet.
+   *
+   * Asking somebody to fund an account that already holds something is the
+   * rudest thing this screen can do, and it used to do it every time: the
+   * plate rendered the moment an address existed, and the balance came back a
+   * poll later. So nothing is offered until the answer is in -- funded members
+   * are gone by then, and the ones who see the QR are the ones who need it.
+   */
+  const [checked, setChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   // The server says whether this deployment is rehearsing; no second env var.
@@ -203,6 +213,8 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
             setFunded(true);
             return;
           }
+          // Looked at, and empty. This is the only place that can say so.
+          setChecked(true);
         }
         // A 503 is the RPC being unreachable, not an empty wallet. Either way
         // the answer is to look again.
@@ -273,8 +285,13 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
             <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
             {error}
           </p>
-        ) : !address ? (
-          <p className="mt-4 text-[15px] text-grey-on-ground">Making one.</p>
+        ) : !hasWallet ? (
+          <p className="mt-4 text-[15px] text-grey-on-ground">Making you a wallet.</p>
+        ) : !address || !checked ? (
+          /* A member who signed in with Phantom is not having a wallet made
+             for them, and telling them so was simply untrue. What is actually
+             happening is that their wallet is being looked at. */
+          <p className="mt-4 text-[15px] text-grey-on-ground">Checking your wallet.</p>
         ) : (
           <>
             <p className="mt-3 text-[15px] leading-relaxed text-ink">

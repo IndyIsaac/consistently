@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { ruleSentence } from "@/lib/pact-view";
 import { formatMoney } from "@/lib/money";
 import { RuleConfigSchema } from "@/lib/rules";
-import { LIVE } from "@/lib/session";
+import { gate, LIVE } from "@/lib/session";
 import { INVITE_COOKIE } from "@/proxy";
 
 export const metadata = { title: "Welcome · Consistently" };
@@ -47,5 +47,22 @@ export default async function WelcomePage() {
   // the whole app is the demo, and the demo is already furnished.
   if (!LIVE) redirect("/dashboard");
 
-  return <Onboarding invite={await invitedPact()} />;
+  const invite = await invitedPact();
+
+  /**
+   * Somebody already through the gate has no business watching it paint.
+   *
+   * This screen used to render for everyone and then throw the funded ones
+   * out from an effect, which put the funding screen on the display for as
+   * long as a round trip took and then yanked it. Deciding here means a
+   * returning member never sees it at all.
+   *
+   * `gate()` reads the stamped column rather than an RPC, so this costs one
+   * indexed query. It cannot answer for a first-time member -- no row exists
+   * yet, and the address is only known in their browser -- which is what
+   * components/Onboarding.tsx holds its own screen back for.
+   */
+  if ((await gate()) === "ok") redirect(invite ? "/join" : "/dashboard");
+
+  return <Onboarding invite={invite} />;
 }

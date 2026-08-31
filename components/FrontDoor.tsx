@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useLoginWithEmail, useLoginWithSiws, usePrivy } from "@privy-io/react-auth";
@@ -8,7 +8,7 @@ import { useStandardWallets } from "@privy-io/react-auth/solana";
 
 import { TriangleAlert, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { walletPath } from "@/lib/door";
+import { phantomBrowseLink, walletPath } from "@/lib/door";
 
 /* ---------------------------------------------------------------------------
  * The front door, and the one surface that takes the inverse of the app's
@@ -784,6 +784,31 @@ function OrRule() {
  * The reasoning stands and the conclusion flipped: there is something behind
  * it now.
  */
+/**
+ * Whether this is a touch device, read the way React wants an external value
+ * read rather than assigned into state from an effect.
+ *
+ * The server has no pointer to report, so it answers false; the first client
+ * paint agrees with it and is corrected in the same commit, which is why this
+ * cannot produce a hydration mismatch. Nothing that depends on it is on screen
+ * before START is pressed in any case.
+ */
+const COARSE_POINTER = "(pointer: coarse)";
+
+function subscribeToPointer(onChange: () => void) {
+  const query = window.matchMedia(COARSE_POINTER);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function useCoarsePointer() {
+  return useSyncExternalStore(
+    subscribeToPointer,
+    () => window.matchMedia(COARSE_POINTER).matches,
+    () => false,
+  );
+}
+
 const WALLET_BUTTON =
   "flex w-full items-center justify-center gap-2.5 rounded-full border border-door-ink/25 py-3.5 text-door-ink transition-colors duration-200 hover:border-door-ink hover:bg-door-ink hover:text-door disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-door-ink/25 disabled:hover:bg-transparent disabled:hover:text-door-ink";
 
@@ -799,7 +824,7 @@ function WalletOptions({
   onSuccess: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const path = walletPath(wallets);
+  const path = walletPath(wallets, { mobile: useCoarsePointer() });
 
   if (path === "unconfigured") {
     return (
@@ -822,6 +847,26 @@ function WalletOptions({
         <Wallet className="size-3.5" aria-hidden="true" />
         <span className="text-[13px] tracking-[0.04em]">Connect a wallet</span>
       </button>
+    );
+  }
+
+  /**
+   * A phone. Not a button that signs in -- a door out of this browser and into
+   * Phantom's, which is the only place on a phone where a wallet can answer.
+   * An anchor rather than an onClick because that is what it is, and because
+   * the OS handles a real link to another app more reliably than script does.
+   */
+  if (path === "wallet-app") {
+    return (
+      <>
+        <a href={phantomBrowseLink(window.location.href)} className={WALLET_BUTTON}>
+          <Wallet className="size-3.5" aria-hidden="true" />
+          <span className="text-[13px] tracking-[0.04em]">Open in Phantom</span>
+        </a>
+        <p className="mt-3 text-center text-[12px] leading-relaxed text-grey-on-door">
+          Phantom opens this page in its own browser, and you sign in there.
+        </p>
+      </>
     );
   }
 
