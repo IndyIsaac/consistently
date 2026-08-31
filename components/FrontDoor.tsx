@@ -237,6 +237,27 @@ function Door({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * Which of the two navigators owns the way out, latched by whichever asks
+   * first.
+   *
+   * A wallet sign-in arms both. `arrive` is called by the button when the
+   * signature comes back, and the effect below fires because Privy flipping
+   * `authenticated` is exactly the condition it watches for. They were built
+   * for the same symptom -- a door that signs somebody in and then sits there
+   * -- at different times, and having both is worse than having either: two
+   * navigations to the same route inside a few milliseconds, one `push` and
+   * one `replace`, and the router can end up completing neither. What is left
+   * on screen is the threshold wipe, which is a full-bleed rectangle of
+   * `bg-ground` with nothing behind it. A white page, on `/`, needing a reload
+   * -- and a reload works, because the proxy sends a signed-in visitor
+   * straight to /dashboard.
+   *
+   * A ref rather than state: this must be read and set in the same tick that
+   * decides, and a re-render is exactly what it must not wait for.
+   */
+  const navigating = useRef(false);
+
   const cells = useRef<(HTMLInputElement | null)[]>([]);
   const verifying = useRef(false);
 
@@ -266,6 +287,11 @@ function Door({
    * them is identical.
    */
   const arrive = useCallback(async () => {
+    // The effect below got there first. It is already navigating, and the
+    // threshold would be an animation over a page that is leaving.
+    if (navigating.current) return;
+    navigating.current = true;
+
     setStep("arriving");
 
     /**
@@ -299,6 +325,11 @@ function Door({
 
     let live = true;
 
+    // `arrive` owns this sign-in and is mid-threshold. This effect is for the
+    // door nobody crossed -- a tab left open, a sign-in that navigated
+    // nowhere -- not for one that is crossing right now.
+    if (navigating.current) return;
+
     void (async () => {
       // Back here after a bounce. The client says signed in, the server keeps
       // saying otherwise, and trying a third time would only ask the same
@@ -323,6 +354,12 @@ function Door({
         setStep("stuck");
         return;
       }
+
+      // Claimed here rather than at the top of the effect for the same reason
+      // `bouncedOnce` is: an attempt that never reached a navigation should
+      // not spend the one that could.
+      if (navigating.current) return;
+      navigating.current = true;
 
       // Set on the way out rather than on the way in, so a development
       // remount -- StrictMode mounts every effect twice -- spends the one
