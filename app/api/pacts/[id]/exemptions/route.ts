@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { UnauthorizedError } from "@/lib/auth";
+import { requireUser, UnauthorizedError } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   ELIGIBLE_STATUSES,
@@ -154,6 +154,30 @@ export async function castVote(params: {
   return { status, approvals, needed };
 }
 
+/**
+ * The caller is who they say they are, and the wallet in the body is theirs.
+ *
+ * These routes took `userWallet` from the request body and believed it. The
+ * README says so plainly -- "the inputs to a settlement verdict are
+ * forgeable" -- and it is the honest description: a check-in and an exemption
+ * vote both decide who forfeits money, and either could be posted on somebody
+ * else's behalf by anyone who knew their address, which is printed on the
+ * pact page.
+ *
+ * The client has sent a bearer since lib/channel-client.ts started asking the
+ * SDK for one, so this costs a member nothing. It only removes the part where
+ * the server took the body's word for it.
+ */
+async function callerWallet(req: NextRequest, claimed: unknown): Promise<string> {
+  const user = await requireUser(req);
+  if (typeof claimed === "string" && claimed !== user.walletAddress) {
+    // A guard error, so it leaves as a 400 with this sentence on it, which is
+    // the one shape lib/channel-client.ts passes through to the member.
+    throw new ExemptionGuardError("That is not your wallet.");
+  }
+  return user.walletAddress;
+}
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
@@ -164,7 +188,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json(
         await requestExemption({
           pactId: id,
-          userWallet: body.userWallet,
+          userWallet: await callerWallet(req, body.userWallet),
           periodKey: body.periodKey,
           reason: body.reason,
         }),
@@ -174,7 +198,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json(
         await castVote({
           exemptionId: body.exemptionId,
-          userWallet: body.userWallet,
+          userWallet: await callerWallet(req, body.userWallet),
           approve: Boolean(body.approve),
         }),
       );

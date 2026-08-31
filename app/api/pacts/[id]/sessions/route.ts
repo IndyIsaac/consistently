@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { UnauthorizedError } from "@/lib/auth";
+import { requireUser, UnauthorizedError } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkedInLine, checkedOutLine, earlyCheckoutRefusal } from "@/lib/bot";
 import { dayKeyFor, RuleConfigSchema } from "@/lib/rules";
@@ -130,6 +130,47 @@ export async function closeSession(params: {
   return { durationMins };
 }
 
+/**
+ * The caller is who they say they are, and the session is theirs to touch.
+ *
+ * This route took `userWallet` from the request body and believed it, and
+ * `close` took a bare `sessionId` and believed that. The README says what
+ * that amounts to -- "the inputs to a settlement verdict are forgeable" --
+ * and a check-in is exactly such an input: it decides who kept the cadence
+ * and therefore whose stake moves. A member's address is printed on the pact
+ * page, so anyone in the crew could record a day for somebody else, or close
+ * a session they were still in.
+ *
+ * The client has sent a bearer since lib/channel-client.ts started asking the
+ * SDK for one, so this costs an honest member nothing.
+ */
+async function callerWallet(req: NextRequest, claimed: unknown): Promise<string> {
+  const user = await requireUser(req);
+  if (typeof claimed === "string" && claimed !== user.walletAddress) {
+    // A guard error, so it leaves as a 400 carrying this sentence -- the one
+    // shape lib/channel-client.ts passes through to the member.
+    throw new SessionGuardError("That is not your wallet.");
+  }
+  return user.walletAddress;
+}
+
+/** The session exists, and it belongs to whoever is asking to close it. */
+async function ownSession(req: NextRequest, sessionId: unknown): Promise<string> {
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new SessionGuardError("That is not a session.");
+  }
+  const user = await requireUser(req);
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { membership: { select: { userId: true } } },
+  });
+  if (!session) throw new SessionGuardError("That session is not open.");
+  if (session.membership.userId !== user.id) {
+    throw new SessionGuardError("That is not your session.");
+  }
+  return sessionId;
+}
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
@@ -140,14 +181,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json(
         await openSession({
           pactId: id,
-          userWallet: body.userWallet,
+          userWallet: await callerWallet(req, body.userWallet),
           photoUrl: body.photoUrl ?? null,
         }),
       );
     }
     if (body.action === "close") {
       return NextResponse.json(
-        await closeSession({ sessionId: body.sessionId, photoUrl: body.photoUrl ?? null }),
+        await closeSession({
+          sessionId: await ownSession(req, body.sessionId),
+          photoUrl: body.photoUrl ?? null,
+        }),
       );
     }
     return NextResponse.json({ error: "action must be open or close" }, { status: 400 });

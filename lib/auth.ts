@@ -58,7 +58,21 @@ async function verify(token: string | undefined): Promise<string | null> {
 /** The verified Privy user id from the cookie, for server components. */
 export async function privyIdFromCookie(): Promise<string | null> {
   if (!PRIVY_CONFIGURED) return null;
-  const jar = await cookies();
+
+  /**
+   * `cookies()` throws outside a request scope, and that throw is not an
+   * authentication failure -- it escaped as a 500, so a route that meant to
+   * answer "nobody is signed in" answered "something broke" instead. Outside
+   * a request there is no jar, which is indistinguishable from an empty one:
+   * either way nobody is signed in, and that is a thing every caller here
+   * already knows how to say.
+   */
+  let jar;
+  try {
+    jar = await cookies();
+  } catch {
+    return null;
+  }
   return verify(jar.get(TOKEN_COOKIE)?.value);
 }
 
