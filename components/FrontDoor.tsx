@@ -437,7 +437,29 @@ function Door({
   useEffect(() => {
     gate.current = awaitSession;
   }, [awaitSession]);
-  const serverSees = useCallback(async () => (gate.current ? gate.current() : true), []);
+  /**
+   * Never rejects, because two callers cannot survive it if it does.
+   *
+   * `arrive` is reached from `void enter(...)` and the effect below runs it
+   * from a bare async IIFE -- neither has a catch, and neither could usefully
+   * have one, because a door that has already latched `busy` and `verifying`
+   * cannot un-latch them from a rejection it never sees. That is the exact
+   * shape of the bug this file already carries a comment about: the button
+   * un-busies, nothing is said, nothing appears.
+   *
+   * Everything under here is written not to throw. This is the guarantee
+   * rather than the hope, and false is a state the door knows how to render:
+   * it says the session could not be seen and offers a reload, which is the
+   * true thing to say when we could not find out.
+   */
+  const serverSees = useCallback(async () => {
+    try {
+      return gate.current ? await gate.current() : true;
+    } catch (e) {
+      console.error("[door] could not establish the session", e);
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     router.prefetch("/dashboard");
