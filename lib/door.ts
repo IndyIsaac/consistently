@@ -49,11 +49,22 @@ export function walletPath(
  * Open this page inside Phantom's browser.
  *
  * `ref` is the origin Phantom shows as the site asking, and is what its back
- * control returns to. The whole URL is carried through encoded, query and all,
- * so a scanned invite survives the jump -- losing `?invite=` here would land
- * somebody in the app with no crew and no way to tell what went wrong.
+ * control returns to.
+ *
+ * The invite has to be put back by hand. proxy.ts takes `?invite=` off the
+ * URL on the way in and stashes it in an httpOnly cookie, which is the right
+ * thing for a cookie and useless here: Phantom's browser has its own jar, so
+ * nothing carried in this jump except the address itself survives. A member
+ * who scanned a QR would arrive signed in, with no crew, and no way to tell
+ * what went wrong. The token is read on the server -- app/page.tsx -- and
+ * threaded down for exactly this line.
  */
-export function phantomBrowseLink(url: string): string {
-  const { origin } = new URL(url);
-  return `https://phantom.app/ul/browse/${encodeURIComponent(url)}?ref=${encodeURIComponent(origin)}`;
+export function phantomBrowseLink(url: string, invite?: string | null): string {
+  const target = new URL(url);
+  if (invite) target.searchParams.set("invite", invite);
+
+  return (
+    `https://phantom.app/ul/browse/${encodeURIComponent(target.toString())}` +
+    `?ref=${encodeURIComponent(target.origin)}`
+  );
 }

@@ -53,11 +53,22 @@ describe("the link into Phantom's browser", () => {
     );
   });
 
-  it("keeps a scanned invite attached across the jump", () => {
-    // The commonest way anybody arrives is a scanned QR, and losing the token
-    // on the way into Phantom would land them in the app with no crew.
-    expect(phantomBrowseLink("https://x.example/?invite=tok_abc")).toContain(
-      encodeURIComponent("invite=tok_abc"),
-    );
+  /**
+   * The commonest way anybody arrives is a scanned QR, and the token is not in
+   * the URL by the time this runs. proxy.ts stashes it in an httpOnly cookie
+   * and redirects to a clean address -- and Phantom's browser is a different
+   * cookie jar, so a jump that carried only the address would land somebody in
+   * the app signed in, with no crew, and nothing on screen to say why.
+   */
+  it("re-attaches a stashed invite the URL no longer carries", () => {
+    const link = phantomBrowseLink("https://x.example/", "tok_abc");
+    const target = decodeURIComponent(link.split("/ul/browse/")[1].split("?ref=")[0]);
+    expect(target).toBe("https://x.example/?invite=tok_abc");
+  });
+
+  it("leaves the address alone when no invite is waiting", () => {
+    const link = phantomBrowseLink("https://x.example/", null);
+    const target = decodeURIComponent(link.split("/ul/browse/")[1].split("?ref=")[0]);
+    expect(target).toBe("https://x.example/");
   });
 });

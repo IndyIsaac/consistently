@@ -203,6 +203,7 @@ function Door({
   privyConfigured,
   wallets,
   handoff,
+  invite,
   alreadyIn = false,
   awaitSession,
 }: {
@@ -216,6 +217,8 @@ function Door({
    * zero-env-var path, where an empty list is never reached.
    */
   handoff?: () => void;
+  /** A scanned invite the proxy stashed, or null. See app/page.tsx. */
+  invite: string | null;
   /** Signed in already -- a returning tab, or a sign-in that did not navigate. */
   alreadyIn?: boolean;
   /**
@@ -482,6 +485,7 @@ function Door({
                 <WalletOptions
                   wallets={wallets}
                   handoff={handoff}
+                  invite={invite}
                   onFailure={setError}
                   onSuccess={arrive}
                 />
@@ -578,7 +582,7 @@ function Door({
  * `useMemo` keeps the Auth identity stable across renders -- `enter` depends on
  * it, and a fresh object every render would rebuild the callback mid-typing.
  */
-function PrivyDoor() {
+function PrivyDoor({ invite }: { invite: string | null }) {
   const { ready: privyReady, authenticated, getAccessToken, login } = usePrivy();
   const privy = useLoginWithEmail();
   const auth = useMemo(() => privyAuth(privy), [privy]);
@@ -705,17 +709,18 @@ function PrivyDoor() {
       privyConfigured
       wallets={wallets}
       handoff={handoff}
+      invite={invite}
       alreadyIn={privyReady && authenticated}
       awaitSession={waitForSession}
     />
   );
 }
 
-export function FrontDoor() {
+export function FrontDoor({ invite }: { invite: string | null }) {
   return PRIVY_CONFIGURED ? (
-    <PrivyDoor />
+    <PrivyDoor invite={invite} />
   ) : (
-    <Door auth={MOCK_AUTH} privyConfigured={false} wallets={null} />
+    <Door auth={MOCK_AUTH} privyConfigured={false} wallets={null} invite={null} />
   );
 }
 
@@ -815,11 +820,13 @@ const WALLET_BUTTON =
 function WalletOptions({
   wallets,
   handoff,
+  invite,
   onFailure,
   onSuccess,
 }: {
   wallets: WalletOption[] | null;
   handoff?: () => void;
+  invite: string | null;
   onFailure: (message: string) => void;
   onSuccess: () => void;
 }) {
@@ -859,7 +866,7 @@ function WalletOptions({
   if (path === "wallet-app") {
     return (
       <>
-        <a href={phantomBrowseLink(window.location.href)} className={WALLET_BUTTON}>
+        <a href={phantomBrowseLink(window.location.href, invite)} className={WALLET_BUTTON}>
           <Wallet className="size-3.5" aria-hidden="true" />
           <span className="text-[13px] tracking-[0.04em]">Open in Phantom</span>
         </a>
