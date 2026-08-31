@@ -158,6 +158,22 @@ async function askServerForCookie(getAccessToken: () => Promise<string | null>) 
 }
 
 async function sessionVisible(getAccessToken: () => Promise<string | null>) {
+  /**
+   * The commonest case, and it used to pay for the rarest one.
+   *
+   * Privy writes the cookie as part of signing in, so by the time anybody asks
+   * this question it is usually already there -- and the answer was still a
+   * token round trip away, because `getAccessToken()` came first
+   * unconditionally. Reading the one fact this function exists to establish,
+   * before spending anything to establish it, makes the ordinary sign-in
+   * immediate and leaves the whole apparatus below for the sign-in that needs
+   * it.
+   */
+  if (serverCanSeeSession()) {
+    clearBounced();
+    return true;
+  }
+
   const deadline = Date.now() + SESSION_WAIT_MS;
 
   try {
@@ -170,10 +186,14 @@ async function sessionVisible(getAccessToken: () => Promise<string | null>) {
     if (Date.now() >= deadline) {
       // Privy's own write never landed. Ask the server to do it, which is the
       // one version of this that no browser clock can spoil.
-      return askServerForCookie(getAccessToken);
+      const rescued = await askServerForCookie(getAccessToken);
+      if (rescued) clearBounced();
+      return rescued;
     }
     await pause(SESSION_POLL_MS);
   }
+
+  clearBounced();
   return true;
 }
 
@@ -306,6 +326,24 @@ function hasBounced(): boolean {
     return sessionStorage.getItem(BOUNCE_KEY) === "1";
   } catch {
     return false;
+  }
+}
+
+/**
+ * Forget the failed attempt, because there is now a session to see.
+ *
+ * The mark means "this tab already bounced and it did not work". The moment
+ * the cookie is visible that is no longer true, and leaving it set turns the
+ * guard into the bug it was written to prevent: every later sign-in in the
+ * same tab short-circuits to "reload the page" with nothing wrong. The module
+ * variable this replaced was cleared by the document reload; sessionStorage
+ * outlives one, so it has to be cleared on purpose.
+ */
+function clearBounced(): void {
+  try {
+    sessionStorage.removeItem(BOUNCE_KEY);
+  } catch {
+    // Nothing was stored, so there is nothing to forget.
   }
 }
 
