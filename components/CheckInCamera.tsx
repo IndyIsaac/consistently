@@ -49,7 +49,20 @@ export function CheckInCamera({
         type="file"
         accept="image/*"
         capture="environment"
-        className="hidden"
+        /**
+         * `sr-only`, not `hidden`.
+         *
+         * `hidden` is `display: none`, and WebKit will not open a file picker
+         * for a `display: none` input that was clicked from script -- the call
+         * returns and nothing happens. Chrome allows it, which is the only
+         * reason this ever looked like it worked. On Safari, and on every
+         * iPhone, the one button the whole product turns on did nothing.
+         *
+         * `sr-only` keeps the input rendered and out of sight, which is what
+         * ProfileForm and RuleEditor both already do with their own file
+         * inputs -- and why those two kept working.
+         */
+        className="sr-only"
         onChange={handleChange}
       />
       <button
