@@ -320,7 +320,48 @@ export function Channel({
     // Shown at once, then written. The same pure toggle runs on both sides, so
     // the optimistic row and the stored one cannot disagree.
     setItems((rows) => rows.map((row) => (row.id === itemId ? withReactionToggled(row, emoji) : row)));
-    await toggleReaction(view.pactId, itemId, emoji, viewerWallet);
+
+    const stuck = await attempt(
+      () => toggleReaction(view.pactId, itemId, emoji, viewerWallet),
+      "That reaction did not stick. Try again.",
+    );
+
+    // The toggle is its own inverse, so undoing it is applying it again. Left
+    // alone the optimistic row simply vanished at the next five-second
+    // refresh, with nothing said -- the two sides disagreeing quietly, which
+    // is the one thing the comment above promises cannot happen.
+    if (!stuck) {
+      setItems((rows) => rows.map((row) => (row.id === itemId ? withReactionToggled(row, emoji) : row)));
+    }
+  }
+
+  /**
+   * Run a channel mutation and say whatever it refuses with.
+   *
+   * lib/channel-client.ts goes to real trouble to guarantee that every failure
+   * leaves it as a ChannelError carrying a sentence somebody wrote for this
+   * moment -- the server's own guard, "Your sign-in expired", "No connection".
+   * Three of its four callers then dropped the promise on the floor.
+   * CommandInput, ExemptionVote and Feed all take `() => void` handlers, so a
+   * rejection went nowhere at all: React error boundaries do not catch
+   * rejected promises and this app registers no `unhandledrejection` listener.
+   *
+   * What that looked like from a chair: type `/exempt broke my ankle`, watch
+   * the field clear, and read nothing. The refusal existed the whole time.
+   */
+  async function attempt(work: () => Promise<unknown>, whenBroken: string): Promise<boolean> {
+    try {
+      await work();
+      return true;
+    } catch (e) {
+      if (e instanceof ChannelError) {
+        say(e.message);
+      } else {
+        console.error("[channel] unexpected failure", e);
+        say(whenBroken);
+      }
+      return false;
+    }
   }
 
   async function run(command: string) {
@@ -368,13 +409,20 @@ export function Channel({
           say(exemptNeedsReasonReply());
           break;
         }
-        await requestExemption({
-          pactId: view.pactId,
-          userWallet: viewerWallet,
-          periodKey: view.periodKey,
-          reason: argument,
-        });
-        await refresh();
+        if (
+          await attempt(
+            () =>
+              requestExemption({
+                pactId: view.pactId,
+                userWallet: viewerWallet,
+                periodKey: view.periodKey,
+                reason: argument,
+              }),
+            "That did not reach the crew. Try again.",
+          )
+        ) {
+          await refresh();
+        }
         break;
       default:
         say(unknownCommandReply(name.toLowerCase()));
@@ -401,6 +449,32 @@ export function Channel({
       });
       const body = await res.json().catch(() => ({}));
 
+      /**
+       * 202 is `res.ok`, and it is not a settlement.
+       *
+       * The route answers it when a payout has already been broadcast and the
+       * run aborted part-way -- the pact half settled, some members written
+       * and some not, and a signature in the body for reconciling. Falling
+       * through to the success branch read `failedCount` off a body that has
+       * none, so `failed` defaulted to 0, and settledLine's first branch
+       * announced "Everyone made it. Nobody paid a thing." to a crew whose
+       * week had just come apart mid-payout.
+       *
+       * components/StakeSheet.tsx has checked for this since it was written.
+       * This call site is the one that did not.
+       */
+      if (res.status === 202) {
+        say(
+          settleFailedLine(
+            typeof body.error === "string"
+              ? body.error
+              : "A payout is in flight. Run it again to pick up where it stopped.",
+          ),
+        );
+        await refresh();
+        return;
+      }
+
       if (!res.ok) {
         say(settleFailedLine(typeof body.error === "string" ? body.error : "Try again."));
         return;
@@ -426,13 +500,20 @@ export function Channel({
   async function vote(approve: boolean) {
     const exemption = view.exemption;
     if (!exemption) return;
-    await castVote({
-      pactId: view.pactId,
-      exemptionId: exemption.id,
-      userWallet: viewerWallet,
-      approve,
-    });
-    await refresh();
+    if (
+      await attempt(
+        () =>
+          castVote({
+            pactId: view.pactId,
+            exemptionId: exemption.id,
+            userWallet: viewerWallet,
+            approve,
+          }),
+        "That vote did not reach the crew. Try again.",
+      )
+    ) {
+      await refresh();
+    }
     scrollToFoot();
   }
 
