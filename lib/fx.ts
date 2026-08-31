@@ -28,7 +28,21 @@ export async function fetchUsdRate(currency: string): Promise<number> {
 
   const body = (await res.json()) as { rates?: Record<string, number> };
   const rate = body.rates?.USD;
-  if (typeof rate !== "number") throw new Error(`No USD rate returned for ${code}`);
+
+  /**
+   * A number is not yet a rate.
+   *
+   * This checked the type and nothing else, and every use of the value is a
+   * division: `fromUsdcAtomic` divides by it to write a figure on a dashboard,
+   * and `toUsdcAtomic` multiplies by it to decide how much USDC a stake is.
+   * Zero makes the first Infinity and the second nothing; NaN poisons both,
+   * and `BigInt(NaN)` throws from the middle of creating a pact. A rate is a
+   * positive finite number, and a pact denominated in something else is not a
+   * pact.
+   */
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
+    throw new Error(`No usable USD rate returned for ${code}: ${String(rate)}`);
+  }
   return rate;
 }
 

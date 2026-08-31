@@ -182,13 +182,26 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "Could not finish setting up this account.");
+        /**
+         * `bootstrapped` is latched before this runs and is never lowered, so
+         * a reload is the only retry there is -- exactly as it is for the
+         * wallet above, which says so. This did not, and a member sat on a
+         * sentence with nothing to do about it. The server's own message is
+         * kept when it sent one, since it names the actual problem.
+         */
+        setError(
+          body.error
+            ? `${body.error} Reload the page to try again.`
+            : "Could not finish setting up this account. Reload the page and it will try again.",
+        );
         return;
       }
       const me = await res.json();
       setAddress(me.walletAddress);
       if (me.funded) setFunded(true);
-    })().catch(() => setError("Could not finish setting up this account."));
+    })().catch(() =>
+      setError("Could not finish setting up this account. Reload the page and it will try again."),
+    );
   }, [authenticated, walletsReady, wallet, user, authed]);
 
   /**

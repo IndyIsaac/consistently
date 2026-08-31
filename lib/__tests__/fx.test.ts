@@ -83,3 +83,33 @@ describe("when the rate provider does not answer", () => {
     expect(await fetchUsdRate("USD")).toBe(1);
   });
 });
+
+describe("a number that is not a rate", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const answering = (rates: unknown) =>
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ rates }), { status: 200 }));
+
+  it("refuses zero, which would divide a dashboard by nothing", () => {
+    answering({ USD: 0 });
+    return expect(fetchUsdRate("THB")).rejects.toThrow(/No usable USD rate/);
+  });
+
+  it("refuses a negative rate", () => {
+    answering({ USD: -0.03 });
+    return expect(fetchUsdRate("THB")).rejects.toThrow(/No usable USD rate/);
+  });
+
+  it("refuses NaN, which BigInt would throw on from inside pact creation", () => {
+    // JSON has no NaN, but `rates.USD` is whatever the body said it was.
+    answering({ USD: "not a number" });
+    return expect(fetchUsdRate("THB")).rejects.toThrow(/No usable USD rate/);
+  });
+
+  it("still accepts an ordinary one", async () => {
+    answering({ USD: 0.0285 });
+    expect(await fetchUsdRate("THB")).toBe(0.0285);
+  });
+});
