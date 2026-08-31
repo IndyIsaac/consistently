@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { UnauthorizedError } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   ELIGIBLE_STATUSES,
@@ -182,6 +183,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   } catch (e) {
     if (e instanceof ExemptionGuardError) {
       return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    /**
+     * An expired sign-in is not a fault. Without this it fell to the generic
+     * 500 below, so a member whose token had aged out got "request failed" --
+     * indistinguishable from a crash, to them and to anyone debugging it. The
+     * client can only tell them to sign in again if it is told that is what
+     * happened.
+     */
+    if (e instanceof UnauthorizedError) {
+      return NextResponse.json({ error: e.message }, { status: 401 });
     }
     console.error("POST /api/pacts/[id]/exemptions failed:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Exemption request failed" }, { status: 500 });
