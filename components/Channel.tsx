@@ -10,6 +10,7 @@ import { DayMarkers } from "@/components/DayMarkers";
 import { ExemptionVote } from "@/components/ExemptionVote";
 import { Feed } from "@/components/Feed";
 import { InviteQr } from "@/components/InviteQr";
+import { PhotoChallenge } from "@/components/PhotoChallenge";
 import { StakeSheet } from "@/components/StakeSheet";
 import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
 import {
@@ -33,6 +34,16 @@ import {
   statusReply,
   unknownCommandReply,
 } from "@/lib/bot";
+import {
+  appealFiledLine,
+  challengeAlreadyOpenReply,
+  challengeNeedsMemberReply,
+  challengeOpenedLine,
+  challengeSelfReply,
+  challengeUnknownMemberReply,
+  challengeVerdictLine,
+  type ChallengeStage,
+} from "@/lib/challenge-photo";
 import {
   channelView,
   dayJustClosed,
@@ -101,6 +112,31 @@ export function Channel({
   const [elapsed, setElapsed] = useState(0);
   const [qrOpen, setQrOpen] = useState(showInvite);
   const [pinned, setPinned] = useState(false);
+
+  /**
+   * The photo under challenge, if there is one.
+   *
+   * Local state and not the API: there is no `Challenge` table yet, and adding
+   * one to prisma/schema.prisma while a second branch is open on the same
+   * repository is how two people end up with two different migrations for the
+   * same idea. The arithmetic that decides it is already real and already
+   * tested in lib/challenge-photo.ts — this holds the row until there is
+   * somewhere to put it.
+   */
+  const [challenge, setChallenge] = useState<{
+    accusedName: string;
+    challengerName: string;
+    subject: string;
+    photoUrl: string | null;
+    stage: ChallengeStage;
+    against: number;
+    forPhoto: number;
+    needed: number;
+    eligible: number;
+    /** The viewer has already cast their one vote. */
+    voted: boolean;
+    accusedIsViewer: boolean;
+  } | null>(null);
 
   const foot = useRef<HTMLDivElement>(null);
   const headEnd = useRef<HTMLDivElement>(null);
@@ -365,6 +401,13 @@ export function Channel({
         });
         await refresh();
         break;
+      // `challenge_photo` is accepted because it is what the mechanism gets
+      // called out loud; `challenge` is what /help lists, so the field's own
+      // completion teaches the shorter one.
+      case "challenge":
+      case "challenge_photo":
+        openChallenge(argument);
+        break;
       default:
         say(unknownCommandReply(name.toLowerCase()));
     }
@@ -409,6 +452,97 @@ export function Channel({
     } catch {
       say(settleFailedLine("Could not reach the settlement."));
     }
+    scrollToFoot();
+  }
+
+  /**
+   * `/challenge <member>` — puts one member's latest photo to the rest of the
+   * crew. Every refusal is a sentence the member can act on, and none of them
+   * opens a poll: an accusation that half-happened is worse than one that did
+   * not, because the crew still sees the name.
+   */
+  function openChallenge(argument: string) {
+    const crew = view.crew.map((m) => m.firstName);
+    const typed = argument.trim();
+
+    if (typed.length === 0) {
+      say(challengeNeedsMemberReply(crew.filter((n) => n !== view.viewer?.firstName)));
+      return;
+    }
+    if (challenge && challenge.stage === "open") {
+      say(challengeAlreadyOpenReply(challenge.accusedName));
+      return;
+    }
+
+    const target = view.crew.find(
+      (m) =>
+        m.firstName.toLowerCase() === typed.toLowerCase() ||
+        m.displayName.toLowerCase() === typed.toLowerCase(),
+    );
+    if (!target) {
+      say(challengeUnknownMemberReply(typed, crew));
+      return;
+    }
+    if (target.isViewer) {
+      say(challengeSelfReply());
+      return;
+    }
+
+    // Everyone staked except the accused has a say; a simple majority carries
+    // it. The same arithmetic lib/challenge-photo.ts does over real rows.
+    const eligible = Math.max(1, view.crew.length - 1);
+    const needed = Math.floor(eligible / 2) + 1;
+
+    setChallenge({
+      accusedName: target.firstName,
+      challengerName: view.viewer?.firstName ?? "You",
+      subject: "The last check-in photo.",
+      // The most recent photo in the transcript is the one being argued about.
+      photoUrl: items.filter((i) => i.photoUrl).at(-1)?.photoUrl ?? null,
+      stage: "open",
+      against: 0,
+      forPhoto: 0,
+      needed,
+      eligible,
+      voted: false,
+      accusedIsViewer: false,
+    });
+    say(challengeOpenedLine(view.viewer?.firstName ?? "You", target.firstName));
+  }
+
+  /** One vote each, and the verdict is announced the moment it closes. */
+  function voteChallenge(against: boolean) {
+    setChallenge((current) => {
+      if (!current || current.stage !== "open" || current.voted) return current;
+
+      const nextAgainst = current.against + (against ? 1 : 0);
+      const nextFor = current.forPhoto + (against ? 0 : 1);
+      const stage: ChallengeStage =
+        nextAgainst >= current.needed
+          ? "upheld"
+          : nextFor >= current.needed
+            ? "dismissed"
+            : "open";
+
+      if (stage !== "open") {
+        say(
+          challengeVerdictLine({
+            accused: current.accusedName,
+            upheld: stage === "upheld",
+            against: nextAgainst,
+            eligible: current.eligible,
+          }),
+        );
+      }
+      return { ...current, against: nextAgainst, forPhoto: nextFor, stage, voted: true };
+    });
+    scrollToFoot();
+  }
+
+  /** The accused sends it to a person. Nothing settles until they answer. */
+  function appealChallenge() {
+    setChallenge((current) => (current ? { ...current, stage: "appealed" } : current));
+    if (challenge) say(appealFiledLine(challenge.accusedName));
     scrollToFoot();
   }
 
@@ -578,6 +712,26 @@ export function Channel({
                 needed={view.exemption.needed}
                 canVote={view.exemption.canVote}
                 onVote={vote}
+              />
+            </div>
+          )}
+
+          {challenge && (
+            <div className="mt-7">
+              <PhotoChallenge
+                accusedName={challenge.accusedName}
+                challengerName={challenge.challengerName}
+                subject={challenge.subject}
+                photoUrl={challenge.photoUrl}
+                stage={challenge.stage}
+                against={challenge.against}
+                forPhoto={challenge.forPhoto}
+                needed={challenge.needed}
+                eligible={challenge.eligible}
+                canVote={!challenge.voted}
+                canAppeal={challenge.stage === "upheld" && challenge.accusedIsViewer}
+                onVote={voteChallenge}
+                onAppeal={appealChallenge}
               />
             </div>
           )}

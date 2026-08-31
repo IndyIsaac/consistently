@@ -142,6 +142,7 @@ export const COMMANDS: { name: string; arg?: string; hint: string }[] = [
   { name: "stake", hint: "what is riding on it" },
   { name: "invite", hint: "the code to hand round" },
   { name: "exempt", arg: "<reason>", hint: "ask to be let off" },
+  { name: "challenge", arg: "<member>", hint: "put someone's photo to the crew" },
   { name: "settle", arg: "[force]", hint: "close the period and move the money" },
   { name: "help", hint: "this" },
 ];

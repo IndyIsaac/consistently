@@ -176,9 +176,9 @@ describe("the commands", () => {
   // command list, and adding one should have to be a deliberate edit here too.
   it("lists every command it answers, and counts them correctly", () => {
     const help = helpReply();
-    expect(help.startsWith("Seven commands.")).toBe(true);
+    expect(help.startsWith("Eight commands.")).toBe(true);
     for (const command of COMMANDS) expect(help).toContain(`/${command.name}`);
-    expect(COMMANDS).toHaveLength(7);
+    expect(COMMANDS).toHaveLength(8);
   });
 
   // Force can take money off a member who has not broken the rule yet, so
@@ -191,7 +191,7 @@ describe("the commands", () => {
 
   it("corrects an unknown command dryly rather than erroring", () => {
     const reply = unknownCommandReply("gym");
-    expect(reply).toBe("There is no /gym. /help lists the seven there are.");
+    expect(reply).toBe("There is no /gym. /help lists the eight there are.");
     expect(isDeadpan(reply)).toBe(true);
   });
 
