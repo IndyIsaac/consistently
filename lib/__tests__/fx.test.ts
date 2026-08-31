@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { fetchUsdRate, fromUsdcAtomic, toUsdcAtomic } from "@/lib/fx";
 
 describe("fx", () => {
@@ -35,5 +35,51 @@ describe("fromUsdcAtomic", () => {
     // a THB rate the terms are irrational. Rounding here would lose baht.
     const share = fromUsdcAtomic(9_500_000n, 0.0285);
     expect(share * 3).toBeCloseTo(1000, 6);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The rate lookup is somebody else's API on the path that creates a pact.
+ *
+ * It had no timeout, so a third party that was slow rather than down held
+ * POST /api/pacts open with no upper bound: the create form span, and there
+ * was nothing to read and no end to it. Failing in five seconds is a
+ * sentence; hanging is a demo.
+ * ------------------------------------------------------------------------- */
+
+describe("when the rate provider does not answer", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("gives up rather than waiting forever", async () => {
+    // What `AbortSignal.timeout` throws when it fires.
+    vi.stubGlobal("fetch", async () => {
+      const e = new Error("The operation was aborted due to timeout");
+      e.name = "TimeoutError";
+      throw e;
+    });
+
+    await expect(fetchUsdRate("THB")).rejects.toThrow(/FX lookup failed for THB/);
+  });
+
+  it("asks for a signal at all, which is the whole fix", async () => {
+    let sawSignal = false;
+    vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+      sawSignal = init?.signal instanceof AbortSignal;
+      return new Response(JSON.stringify({ rates: { USD: 0.03 } }), { status: 200 });
+    });
+
+    await fetchUsdRate("THB");
+    expect(sawSignal).toBe(true);
+  });
+
+  it("still short-circuits the currencies that need no lookup", async () => {
+    // No fetch stubbed on purpose: reaching one would be the bug.
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("should not have been called");
+    });
+    expect(await fetchUsdRate("USDC")).toBe(1);
+    expect(await fetchUsdRate("USD")).toBe(1);
   });
 });

@@ -73,6 +73,9 @@ export class DFlowError extends Error {
 // but userPublicKey is optional so getQuote (quote-only, no wallet) can share it.
 type CallParams = Omit<OrderParams, "userPublicKey"> & { userPublicKey?: string };
 
+/** Long enough for a real route to be found, short enough to still be an app. */
+const ORDER_TIMEOUT_MS = 12_000;
+
 async function callOrder(params: CallParams): Promise<OrderResponse> {
   const q = new URLSearchParams({
     inputMint: params.inputMint,
@@ -97,7 +100,31 @@ async function callOrder(params: CallParams): Promise<OrderResponse> {
   const headers: Record<string, string> = {};
   if (process.env.DFLOW_API_KEY) headers["x-api-key"] = process.env.DFLOW_API_KEY;
 
-  const res = await fetch(`${BASE_URL}/order?${q.toString()}`, { headers });
+  /**
+   * Bounded, because at the other end of this is a member watching a button.
+   *
+   * Every quote and every stake comes through here. With no signal a router
+   * that was slow rather than down held the route's connection open with no
+   * upper bound, and the stake sheet showed nothing at all -- no price, no
+   * refusal, no end to it. A DFlowError is something the UI already knows how
+   * to say.
+   */
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/order?${q.toString()}`, {
+      headers,
+      signal: AbortSignal.timeout(ORDER_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new DFlowError(
+      "unreachable",
+      e instanceof Error && e.name === "TimeoutError"
+        ? "The router did not answer in time. Try again."
+        : "Could not reach the router.",
+      504,
+    );
+  }
+
   const text = await res.text();
 
   let body: any;

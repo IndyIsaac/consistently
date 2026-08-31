@@ -1,8 +1,29 @@
+/**
+ * Somebody else's API, on the path that creates a pact.
+ *
+ * A third party that is slow rather than down is the worse of the two: with
+ * no signal this await had no upper bound, so POST /api/pacts held its
+ * connection open and the create form span with nothing to read. Failing in
+ * five seconds is a sentence; hanging is a demo.
+ */
+const FX_TIMEOUT_MS = 5_000;
+
 export async function fetchUsdRate(currency: string): Promise<number> {
   const code = currency.toUpperCase();
   if (code === "USD" || code === "USDC") return 1;
 
-  const res = await fetch(`https://api.frankfurter.app/latest?from=${code}&to=USD`);
+  let res: Response;
+  try {
+    res = await fetch(`https://api.frankfurter.app/latest?from=${code}&to=USD`, {
+      signal: AbortSignal.timeout(FX_TIMEOUT_MS),
+    });
+  } catch (e) {
+    // An abort and a refused connection mean the same thing to the caller:
+    // there is no rate, so there is no pact.
+    throw new Error(
+      `FX lookup failed for ${code}: ${e instanceof Error ? e.message : "unreachable"}`,
+    );
+  }
   if (!res.ok) throw new Error(`FX lookup failed for ${code}: ${res.status}`);
 
   const body = (await res.json()) as { rates?: Record<string, number> };
