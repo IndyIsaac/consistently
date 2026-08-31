@@ -85,6 +85,8 @@ export function Channel({
   viewerWallet,
   showInvite = false,
   needsStake = false,
+  // Renamed on the way in: `openSession` is also the action that starts one.
+  openSession: serverSession = null,
 }: {
   view: ChannelView;
   items: FeedItemDto[];
@@ -93,11 +95,31 @@ export function Channel({
   showInvite?: boolean;
   /** The viewer has joined but not paid. Nothing else is theirs to do yet. */
   needsStake?: boolean;
+  /**
+   * The viewer's session that is still open on the server, if any.
+   *
+   * Without this the state below started at null on every mount, and the server
+   * knew about a session the screen did not. Leaving the page did it -- the
+   * Groups link this component renders itself, a reload, or a phone discarding
+   * a backgrounded tab, which is exactly what happens across a thirty-minute
+   * gym rule.
+   *
+   * The button then read "Check in" again. Pressing it hit the open-session
+   * guard, which refuses without offering a way out: check-out is keyed by
+   * sessionId and the client no longer had one. So the row never got an
+   * endedAt, the day never counted on a checkin_checkout rule -- the default --
+   * and because that guard's lookup is not scoped to a day, the orphan blocked
+   * every check-in for the rest of the pact. One tap on a nav link forfeited
+   * the stake.
+   */
+  openSession?: { sessionId: string; startedAt: number } | null;
 }) {
   const [view, setView] = useState(initialView);
   const [items, setItems] = useState(initialItems);
   const [replies, setReplies] = useState<FeedItemDto[]>([]);
-  const [session, setSession] = useState<{ sessionId: string; startedAt: number } | null>(null);
+  const [session, setSession] = useState<{ sessionId: string; startedAt: number } | null>(
+    serverSession,
+  );
   const [elapsed, setElapsed] = useState(0);
   const [qrOpen, setQrOpen] = useState(showInvite);
   const [pinned, setPinned] = useState(false);

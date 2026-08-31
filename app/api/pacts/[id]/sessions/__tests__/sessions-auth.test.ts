@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { createVault } from "@/lib/vault";
+import { livePact } from "@/lib/queries";
 
 /* ---------------------------------------------------------------------------
  * The check-in route, from both sides of the guard.
@@ -157,6 +158,66 @@ describe("checking in, now that the route checks who is asking", () => {
 
     await cleanup(theirs.pact.id, theirs.user.id);
     await cleanup(mine.pact.id, mine.user.id);
+  });
+
+  it("hands an already-open session back to the next page load", async () => {
+    /**
+     * The regression that made this worth a database test.
+     *
+     * The screen kept the open session in component state and nothing else, so
+     * leaving the page -- the Groups link, a reload, a phone discarding a
+     * backgrounded tab across a thirty-minute rule -- lost it. The button read
+     * "Check in" again, the guard refused because the row was still open, and
+     * check-out is keyed by an id the client had thrown away. The orphan then
+     * blocked every check-in for the rest of the pact, because that guard's
+     * lookup is not scoped to a day.
+     *
+     * So this asserts the whole round trip rather than the shape of a type:
+     * open a session, then read the pact exactly as the page does, and require
+     * the id and the start time to come back.
+     */
+    const { user, pact } = await fixture();
+    caller.current = user;
+
+    const { sessionId } = await openSession({
+      pactId: pact.id,
+      userWallet: user.walletAddress,
+      photoUrl: null,
+    });
+
+    const view = await livePact(pact.id, user, new Date());
+    expect(view?.viewerOpenSession?.sessionId).toBe(sessionId);
+    // The elapsed timer counts from this, so a missing or zero value would
+    // render as a session that started at the epoch.
+    expect(view?.viewerOpenSession?.startedAt).toBeGreaterThan(0);
+
+    await cleanup(pact.id, user.id);
+  });
+
+  it("carries nothing once the session is checked out", async () => {
+    const { user, pact } = await fixture();
+    caller.current = user;
+
+    const { sessionId } = await openSession({
+      pactId: pact.id,
+      userWallet: user.walletAddress,
+      photoUrl: null,
+    });
+    // The fixture's rule asks for thirty minutes and the route enforces it at
+    // the moment of the attempt, so an honest check-out needs a session that
+    // has actually run that long.
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { startedAt: new Date(Date.now() - 31 * 60_000) },
+    });
+
+    const res = await post(pact.id, { action: "close", sessionId });
+    expect(res.status).toBe(200);
+
+    const view = await livePact(pact.id, user, new Date());
+    expect(view?.viewerOpenSession).toBeNull();
+
+    await cleanup(pact.id, user.id);
   });
 
   it("refuses a caller who is not signed in at all", async () => {

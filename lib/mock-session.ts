@@ -259,7 +259,7 @@ const PACTS: MockPact[] = [
     // 1,000 THB at the 0.0285 rate the pact locked. Atomic units, six decimals.
     stakeUsdc: "28500000",
     viewerStatus: "staked",
-    viewerOpenSessionId: null,
+    viewerOpenSession: null,
     // Dave forfeited three weeks and Pim one; each ฿1,000 split three ways, the
     // indivisible remainder to the first winner.
     viewerEarned: 1333,
@@ -285,7 +285,7 @@ const PACTS: MockPact[] = [
     // 1,000 THB at the 0.0285 rate the pact locked. Atomic units, six decimals.
     stakeUsdc: "28500000",
     viewerStatus: "staked",
-    viewerOpenSessionId: null,
+    viewerOpenSession: null,
     // Two members: a forfeited stake goes to the one person who kept the rule.
     viewerEarned: 2000,
     viewerLost: 0,

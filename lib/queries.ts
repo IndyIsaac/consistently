@@ -168,7 +168,7 @@ function pendingExemptionFor(pact: PactRow, viewerUserId: string, now: Date) {
 function toPactView(
   pact: PactRow,
   sessions: Map<string, Session[]>,
-  openSessionIds: Map<string, string>,
+  openSessions: Map<string, { sessionId: string; startedAt: number }>,
   viewer: User,
   now: Date,
 ): PactView {
@@ -204,17 +204,21 @@ function toPactView(
     vaultAddress: pact.vaultAddress,
     stakeUsdc: pact.stakeUsdc.toString(),
     viewerStatus: viewerMembership?.status ?? "invited",
-    viewerOpenSessionId: viewerMembership ? (openSessionIds.get(viewerMembership.id) ?? null) : null,
+    viewerOpenSession: viewerMembership ? (openSessions.get(viewerMembership.id) ?? null) : null,
   };
 }
 
-async function openSessionsFor(membershipIds: string[]): Promise<Map<string, string>> {
+async function openSessionsFor(
+  membershipIds: string[],
+): Promise<Map<string, { sessionId: string; startedAt: number }>> {
   if (membershipIds.length === 0) return new Map();
   const rows = await prisma.session.findMany({
     where: { membershipId: { in: membershipIds }, endedAt: null },
-    select: { id: true, membershipId: true },
+    select: { id: true, membershipId: true, startedAt: true },
   });
-  return new Map(rows.map((r) => [r.membershipId, r.id]));
+  return new Map(
+    rows.map((r) => [r.membershipId, { sessionId: r.id, startedAt: r.startedAt.getTime() }]),
+  );
 }
 
 /**
