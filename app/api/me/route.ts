@@ -50,12 +50,27 @@ export async function POST(req: NextRequest) {
       displayName: user.displayName,
       funded: user.walletFundedAt !== null,
     });
-  } catch {
-    // The only expected failure is the @unique collision on walletAddress:
-    // somebody is claiming an address already paired with another sign-in.
+  } catch (e) {
+    /**
+     * Only P2002 means what this used to say.
+     *
+     * The collision on walletAddress -- somebody claiming an address already
+     * paired with another sign-in -- was the expected failure, and every other
+     * one was reported as it. A first-time member meeting a cold database was
+     * told their wallet belonged to somebody else: a sentence that is wrong,
+     * unactionable, and sticks, because Onboarding latches on the error and
+     * offers no way to try again.
+     */
+    if (typeof e === "object" && e !== null && "code" in e && e.code === "P2002") {
+      return NextResponse.json(
+        { error: "That wallet is already linked to another account." },
+        { status: 409 },
+      );
+    }
+    console.error("POST /api/me failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: "That wallet is already linked to another account." },
-      { status: 409 },
+      { error: "Could not finish setting up this account. Try again in a moment." },
+      { status: 500 },
     );
   }
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { getAccessToken } from "@privy-io/react-auth";
 import { ArrowLeft, QrCode } from "lucide-react";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import { CheckInCamera } from "@/components/CheckInCamera";
@@ -464,10 +465,27 @@ export function Channel({
   async function settle(force: boolean) {
     say(force ? settlingForcedLine() : settlingLine());
     try {
+      /**
+       * The bearer, and the last call in the app that was without one.
+       *
+       * lib/channel-client.ts and lib/upload.ts were both fixed for exactly
+       * this: the privy-token cookie carries an access token with an expiry,
+       * and once it ages out every route answers 401. The client SDK holds a
+       * fresh token the whole time and nothing here was asking for it -- so a
+       * pact left open long enough could not be settled, which is the one
+       * action in this product that moves the money.
+       */
+      const token = await getAccessToken().catch(() => null);
       const res = await fetch(`/api/pacts/${view.pactId}/settle`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ force }),
+        // Generous: a settlement is several transfers, each confirmed. Long
+        // enough not to abandon a real one, bounded so it cannot hang for good.
+        signal: AbortSignal.timeout(180_000),
       });
       const body = await res.json().catch(() => ({}));
 

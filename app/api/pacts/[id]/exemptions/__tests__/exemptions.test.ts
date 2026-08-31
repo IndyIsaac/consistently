@@ -39,6 +39,9 @@ async function crew(
       stakeAmount: "1000", stakeCurrency: "THB", fxRateToUsd: "0.0285",
       fxFetchedAt: new Date(), stakeUsdc: 28_500_000n,
       vaultAddress: vault.publicKey, vaultSecretEnc: vault.secretEnc,
+      // Everyone here is staked, so the pact is running -- which is the only
+      // state an exemption makes sense in, and a guard now.
+      status: "active",
       memberships: { create: users.map((u) => ({ userId: u.id, status: "staked" as const })) },
     },
   });

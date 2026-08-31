@@ -155,18 +155,33 @@ async function callerWallet(req: NextRequest, claimed: unknown): Promise<string>
 }
 
 /** The session exists, and it belongs to whoever is asking to close it. */
-async function ownSession(req: NextRequest, sessionId: unknown): Promise<string> {
+async function ownSession(
+  req: NextRequest,
+  pactId: string,
+  sessionId: unknown,
+): Promise<string> {
   if (typeof sessionId !== "string" || sessionId.length === 0) {
     throw new SessionGuardError("That is not a session.");
   }
   const user = await requireUser(req);
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
-    select: { membership: { select: { userId: true } } },
+    select: { membership: { select: { userId: true, pactId: true } } },
   });
   if (!session) throw new SessionGuardError("That session is not open.");
   if (session.membership.userId !== user.id) {
     throw new SessionGuardError("That is not your session.");
+  }
+  /**
+   * And it belongs to the pact being posted to. `closeSession` works from the
+   * session id alone, so the pact in the URL was never checked against it --
+   * a check-out for one crew could be posted to another's endpoint. Nothing
+   * moved to the wrong place, because the write follows the session, but the
+   * request and the row it altered described different pacts, and a guard read
+   * later would have been reasoning about the wrong one.
+   */
+  if (session.membership.pactId !== pactId) {
+    throw new SessionGuardError("That session is not in this pact.");
   }
   return sessionId;
 }
@@ -189,7 +204,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (body.action === "close") {
       return NextResponse.json(
         await closeSession({
-          sessionId: await ownSession(req, body.sessionId),
+          sessionId: await ownSession(req, id, body.sessionId),
           photoUrl: body.photoUrl ?? null,
         }),
       );

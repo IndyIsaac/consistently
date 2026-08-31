@@ -43,8 +43,23 @@ export async function requestExemption(params: {
 
   const pact = await prisma.pact.findUniqueOrThrow({
     where: { id: params.pactId },
-    select: { ruleConfig: true },
+    select: { ruleConfig: true, status: true },
   });
+  /**
+   * There is no week to be let off yet. Without this, /exempt on a pact still
+   * waiting for everybody to stake wrote a real exemption row and announced in
+   * the feed that somebody had asked to be excused from a period that has not
+   * begun -- and `startsAt` is null until the last member pays, so the
+   * periodKey it was filed under describes nothing.
+   */
+  if (pact.status !== "active") {
+    throw new ExemptionGuardError(
+      pact.status === "funding"
+        ? "This pact has not started yet."
+        : "This pact is settled. There is nothing left to be excused from.",
+    );
+  }
+
   const parsedRule = RuleConfigSchema.safeParse(pact.ruleConfig);
   if (parsedRule.success && parsedRule.data.exemption === "none") {
     throw new ExemptionGuardError("This pact's rules don't allow exemptions.");
