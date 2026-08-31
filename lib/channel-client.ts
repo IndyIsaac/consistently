@@ -38,6 +38,30 @@ function mock() {
 }
 
 /**
+ * The mock's guard errors, translated into the one the channel branches on.
+ *
+ * This is note 2 above, drawn on the other side of the seam. On the live path
+ * `send` turns a 400 into a `ChannelError` and `Channel.capture()` says it. The
+ * mock throws `MockSessionGuardError` for exactly the same class of thing --
+ * "That's 10 minutes. The pact says 30. Twenty to go." -- and because that is a
+ * different class, `capture()` fell through to `throw e` and the sentence never
+ * reached the channel. The member checked out early and was shown nothing.
+ *
+ * It is the demo path, so it is the path the refusal is most often seen on.
+ */
+async function viaMock<T>(
+  run: (m: Awaited<ReturnType<typeof mock>>) => Promise<T>,
+): Promise<T> {
+  const m = await mock();
+  try {
+    return await run(m);
+  } catch (e) {
+    if (e instanceof m.MockSessionGuardError) throw new ChannelError(e.message);
+    throw e;
+  }
+}
+
+/**
  * The channel's clock.
  *
  * Real data runs on wall time. The mock runs one real second to the minute so
@@ -114,7 +138,7 @@ export async function openSession(params: {
   userWallet: string;
   photoUrl: string | null;
 }): Promise<{ sessionId: string }> {
-  if (!LIVE) return (await mock()).mockOpenSession(params);
+  if (!LIVE) return viaMock((m) => m.mockOpenSession(params));
 
   const body = await send(`/api/pacts/${params.pactId}/sessions`, {
     action: "open",
@@ -130,10 +154,9 @@ export async function closeSession(params: {
   photoUrl: string | null;
 }): Promise<{ durationMins: number }> {
   if (!LIVE) {
-    return (await mock()).mockCloseSession({
-      sessionId: params.sessionId,
-      photoUrl: params.photoUrl,
-    });
+    return viaMock((m) =>
+      m.mockCloseSession({ sessionId: params.sessionId, photoUrl: params.photoUrl }),
+    );
   }
 
   const body = await send(`/api/pacts/${params.pactId}/sessions`, {
@@ -150,7 +173,7 @@ export async function toggleReaction(
   emoji: string,
   userWallet: string,
 ): Promise<{ on: boolean }> {
-  if (!LIVE) return (await mock()).mockToggleReaction(pactId, itemId, emoji);
+  if (!LIVE) return viaMock((m) => m.mockToggleReaction(pactId, itemId, emoji));
 
   const body = await send(`/api/feed/${itemId}/react`, { userWallet, emoji });
   return { on: body.on as boolean };
@@ -162,7 +185,7 @@ export async function requestExemption(params: {
   periodKey: string;
   reason: string;
 }): Promise<{ exemptionId: string }> {
-  if (!LIVE) return (await mock()).mockRequestExemption(params);
+  if (!LIVE) return viaMock((m) => m.mockRequestExemption(params));
 
   const body = await send(`/api/pacts/${params.pactId}/exemptions`, {
     action: "request",
@@ -179,7 +202,7 @@ export async function castVote(params: {
   userWallet: string;
   approve: boolean;
 }): Promise<{ status: "pending" | "granted" | "denied"; approvals: number; needed: number }> {
-  if (!LIVE) return (await mock()).mockCastVote(params);
+  if (!LIVE) return viaMock((m) => m.mockCastVote(params));
 
   const body = await send(`/api/pacts/${params.pactId}/exemptions`, {
     action: "vote",
