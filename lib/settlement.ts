@@ -244,11 +244,39 @@ async function vaultUsdcBalance(vaultAddress: string): Promise<bigint> {
     new PublicKey(USDC_MINT),
     new PublicKey(vaultAddress),
   );
+  /**
+   * A read that failed is not a vault that is empty, and this returned zero
+   * for both.
+   *
+   * Everything downstream trusts it. `pot` becomes zero, `splitPot` is handed
+   * an empty list, every winner's share is written as "0", and that plan goes
+   * into the Settlement row -- which is the mutex. A re-run reads the row back
+   * rather than recomputing, so the period can never be settled again: the
+   * winners get their own stake returned and nothing else, the forfeited
+   * stakes stay in the vault permanently, and the crew is told the opposite in
+   * the same breath -- "their stakes are on their way to everyone who did not".
+   *
+   * Nothing threw and nothing was logged, so the record would say the forfeit
+   * happened. And this is not a remote failure: lib/solana.ts falls back to the
+   * public mainnet endpoint, which rate-limits under exactly the load a
+   * settlement puts on it.
+   *
+   * Under STAKE_DRY_RUN an empty vault is the correct answer and the token
+   * account may legitimately not exist, so that branch keeps the zero. Outside
+   * it, a read we could not make is a refusal: the route turns SettlementError
+   * into a 400 with a sentence on it, and no settlement row is written, so
+   * running it again does the whole thing properly.
+   */
   try {
     const balance = await getConnection().getTokenAccountBalance(ata);
     return BigInt(balance.value.amount);
-  } catch {
-    return 0n;
+  } catch (e) {
+    if (DRY_RUN) return 0n;
+    console.error(
+      `vault balance read failed for ${vaultAddress}:`,
+      e instanceof Error ? e.message : e,
+    );
+    throw new SettlementError("Could not read the vault. Nothing was settled. Try that again.");
   }
 }
 
