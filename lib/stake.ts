@@ -43,11 +43,39 @@ import {
  * ------------------------------------------------------------------------- */
 
 export const DFLOW_PROGRAM_ID = "DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH";
+export { LIGHTHOUSE_PROGRAM_ID };
 const COMPUTE_BUDGET_PROGRAM_ID = "ComputeBudget111111111111111111111111111111";
 const ATA_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 
-/** Programs a sponsored swap is allowed to touch. Anything else is not ours. */
-const SWAP_PROGRAMS = new Set([COMPUTE_BUDGET_PROGRAM_ID, DFLOW_PROGRAM_ID]);
+/**
+ * Lighthouse, the assertion protocol -- github.com/Jac0xb/lighthouse.
+ *
+ * DFlow appends one of these to a swap. It is a guardrail: it asserts what the
+ * transaction should have done -- balances moved, accounts unchanged -- and
+ * fails the whole thing when reality disagrees, which is how a wallet defends
+ * against MEV and a spoofed simulation. It cannot transfer a token or move a
+ * lamport; failing is the only power it has.
+ *
+ * So allowing it does not widen what a sponsored swap can do. It narrows it,
+ * which is the one direction this guard should ever move in.
+ */
+const LIGHTHOUSE_PROGRAM_ID = "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95";
+
+/**
+ * Programs a sponsored swap is allowed to touch. Anything else is not ours.
+ *
+ * This list was written from one live DFlow order, and the header above says
+ * so. One order is not the shape of a router: DFlow picks a venue per quote,
+ * and the first route that carried a Lighthouse assertion was refused with
+ * "That transaction calls something we do not route through" -- true, and
+ * useless to the member reading it. Anything added here has to be a program
+ * that cannot move value, and be named with the reason.
+ */
+const SWAP_PROGRAMS = new Set([
+  COMPUTE_BUDGET_PROGRAM_ID,
+  DFLOW_PROGRAM_ID,
+  LIGHTHOUSE_PROGRAM_ID,
+]);
 /** Programs the plain USDC path is allowed to touch. */
 const TRANSFER_PROGRAMS = new Set([
   COMPUTE_BUDGET_PROGRAM_ID,
@@ -140,6 +168,26 @@ export function assertIsOurStakeTx(
   for (const ix of tx.message.compiledInstructions) {
     const programId = keys[ix.programIdIndex]?.toBase58();
     if (!programId || !allowed.has(programId)) {
+      /**
+       * Name what was refused, because the sentence below cannot.
+       *
+       * The allowlist was written from one live DFlow order and DFlow picks a
+       * venue per quote -- so a route through a different venue, or an input
+       * that has to be wrapped first, produces instructions this list has
+       * never seen. Refusing them is correct; refusing them silently costs a
+       * round trip through a wallet dialog to find out which one.
+       */
+      console.error(
+        "stake guard refused:",
+        JSON.stringify({
+          kind: expected.kind ?? "swap",
+          offending: programId ?? `<index ${ix.programIdIndex} beyond ${keys.length} static keys>`,
+          allowed: [...allowed],
+          programs: tx.message.compiledInstructions.map(
+            (i) => keys[i.programIdIndex]?.toBase58() ?? `<index ${i.programIdIndex}>`,
+          ),
+        }),
+      );
       throw new StakeGuardError("That transaction calls something we do not route through.");
     }
   }

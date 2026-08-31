@@ -13,6 +13,7 @@ import {
 } from "@solana/spl-token";
 import {
   assertIsOurStakeTx,
+  LIGHTHOUSE_PROGRAM_ID,
   computeStakeInput,
   DFLOW_PROGRAM_ID,
   finaliseStake,
@@ -248,6 +249,25 @@ describe("assertIsOurStakeTx", () => {
     expect(() =>
       assertIsOurStakeTx(fakeOrder({ programId: SystemProgram.programId }), ok),
     ).toThrow(StakeGuardError);
+  });
+
+  /**
+   * A real order from mainnet, refused on rehearsal 2026-08-31.
+   *
+   * DFlow appends a Lighthouse assertion to the swap -- the assertion protocol
+   * wallets use against MEV and spoofed simulations. It cannot move a token;
+   * all it can do is fail the transaction when the outcome is not what was
+   * quoted. The allowlist was written from one live order that happened not to
+   * carry one, so the first route that did was refused, and the member was
+   * told the app does not route through it.
+   *
+   * Allowing it strictly narrows what a sponsored swap can get away with,
+   * which is the one direction this guard should ever move in.
+   */
+  it("accepts the Lighthouse assertion DFlow appends to a real swap", () => {
+    expect(() =>
+      assertIsOurStakeTx(fakeOrder({ programId: new PublicKey(LIGHTHOUSE_PROGRAM_ID) }), ok),
+    ).not.toThrow();
   });
 
   it("refuses one that does not touch this pact's vault", () => {
