@@ -208,10 +208,41 @@ const EMPTY_CODE = Array<string>(CODE_LENGTH).fill("");
  * effect that replaces every time it mounts is the loop.
  *
  * A ref would not hold, because the bounce may remount this component. A
- * module variable lasts exactly as long as the document -- which is the right
- * life for it: a reload is the member's retry, and it should get a clean one.
+ * module variable did, and stopped: it lasts exactly as long as the document,
+ * and the arrival became a real navigation, so every bounce brings a fresh
+ * document and a fresh `false`. Door sends them to /dashboard, the proxy finds
+ * no cookie and sends them back, the door sees an authenticated member and
+ * sends them again -- the loop this was written to stop, rebuilt by the thing
+ * that fixed a different one.
+ *
+ * `sessionStorage` is the lifetime actually wanted: it survives a navigation
+ * and dies with the tab, so a reload is still the member's retry and a new tab
+ * is still a clean start.
+ *
+ * And when it cannot be written -- a browser refusing storage, which is the
+ * same browser that refuses the cookie -- the answer is not to try anyway. An
+ * attempt nobody can remember making is the first step of a loop, so this
+ * reports failure and the caller stops.
  */
-let bouncedOnce = false;
+const BOUNCE_KEY = "consistently:bounced-once";
+
+function hasBounced(): boolean {
+  try {
+    return sessionStorage.getItem(BOUNCE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** True when the attempt is on record and may therefore be made. */
+function markBounced(): boolean {
+  try {
+    sessionStorage.setItem(BOUNCE_KEY, "1");
+    return sessionStorage.getItem(BOUNCE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function Door({
   auth,
@@ -380,7 +411,7 @@ function Door({
       // synchronous setState there cascades a render, which React's own lint
       // rule refuses, and every other refusal on this path already reports
       // itself from here.
-      if (bouncedOnce) {
+      if (hasBounced()) {
         if (!live) return;
         setError(SESSION_UNSEEN);
         setStep("stuck");
@@ -405,7 +436,15 @@ function Door({
       // Set on the way out rather than on the way in, so a development
       // remount -- StrictMode mounts every effect twice -- spends the one
       // attempt on the navigation and not on the rehearsal of it.
-      bouncedOnce = true;
+      //
+      // A navigation that cannot be recorded is not attempted. The browser
+      // that will not hold this is the browser that will not hold the cookie
+      // either, and it would bounce straight back here to try again forever.
+      if (!markBounced()) {
+        setError(SESSION_UNSEEN);
+        setStep("stuck");
+        return;
+      }
 
       // `replace`, and no threshold animation: this is not an arrival, it is a
       // page they should never have been looking at. The animation is for
