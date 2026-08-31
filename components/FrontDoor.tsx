@@ -329,7 +329,23 @@ function Door({
       return;
     }
 
-    router.push("/dashboard");
+    /**
+     * A whole page, not a client-side navigation.
+     *
+     * `router.push` fetches /dashboard as an RSC payload, and for a member who
+     * has just signed in the first thing that route does is redirect: the
+     * layout asks gate(), finds no row for them yet, and sends them to
+     * /welcome. That crosses route groups -- (app) to (onboarding), different
+     * layouts -- in the middle of a client navigation, and the client router
+     * drops it. The door was left with the threshold up and nothing happening,
+     * which is exactly what was reported.
+     *
+     * A reload always fixed it, and a reload is this: one hard request that
+     * follows redirects the way the browser has always followed them. Crossing
+     * the threshold is a real departure from this layout, so a real navigation
+     * is the honest instrument -- and the wipe covers what it costs.
+     */
+    window.location.assign("/dashboard");
 
     // Nothing here cancels this. Arriving unmounts the component and takes the
     // timer with it, so it only ever fires when the navigation did not happen.
@@ -394,7 +410,10 @@ function Door({
       // `replace`, and no threshold animation: this is not an arrival, it is a
       // page they should never have been looking at. The animation is for
       // crossing a threshold, and they crossed it already.
-      router.replace("/dashboard");
+      //
+      // Hard, for the reason given in `arrive`: /dashboard redirects a member
+      // with no row yet, and a client navigation does not survive it.
+      window.location.replace("/dashboard");
     })();
 
     return () => {
