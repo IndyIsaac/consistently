@@ -604,7 +604,11 @@ export function Channel({
             something to sit on too, and its negative bottom margin takes back
             the 7rem the app shell reserves for that pill — the band is already
             reserving it. */}
-        <div className="sticky bottom-0 z-20 -mx-5 -mb-28 sm:-mx-8">
+        {/* Above BottomNav, which is fixed at z-40 with a pointer-events-auto
+            pill 240px wide and centred. At this width that pill lands over the
+            Check in button, and a tap on it hit the nav instead -- no picker,
+            no error, nothing. The composer is the thing being used; it wins. */}
+        <div className="sticky bottom-0 z-50 -mx-5 -mb-28 sm:-mx-8">
           <div
             aria-hidden="true"
             className="pointer-events-none h-10"
