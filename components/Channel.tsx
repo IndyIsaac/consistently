@@ -132,7 +132,22 @@ export function Channel({
   );
 
   const scrollToFoot = useCallback(() => {
-    requestAnimationFrame(() => foot.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    /**
+     * `nearest`, not `end`.
+     *
+     * The foot is a 1px div at the bottom of the content and there is no
+     * scroll container around the feed, so this moves the window. `end`
+     * aligns it to the bottom of the viewport whether or not it needs to --
+     * and on a channel with three lines in it, where the foot is already on
+     * screen, that is a smooth scroll to nowhere the member asked to go. It
+     * reads as the page throwing itself to the top after every command.
+     *
+     * `nearest` does nothing when the target is already visible, and the
+     * minimum when it is not, which is the whole of what this wants.
+     */
+    requestAnimationFrame(() =>
+      foot.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+    );
   }, []);
 
   /**
