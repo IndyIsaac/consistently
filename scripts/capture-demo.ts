@@ -175,8 +175,27 @@ function stamp(ms: number): string {
   return `${m}:${s}`;
 }
 
-/** Let an animation land before the shutter. The app's scene transitions are 300ms. */
-const settle = (page: Page, ms = 900) => page.waitForTimeout(ms);
+/**
+ * How long the camera rests on things, as a multiplier. `--pace=2` doubles it.
+ *
+ * The default take moves at the speed of somebody who already knows the
+ * product. A demo that gets talked over does not: a beat has to stay on screen
+ * long enough to say a sentence about it, which is four or five seconds, not
+ * one. Shoot generously and cut in the editor -- a hold that is too long can be
+ * trimmed, and one that is too short cannot be invented.
+ */
+const PACE = Number(flag("pace", "1"));
+
+/**
+ * Let an animation land before the shutter. The app's scene transitions are
+ * 300ms, so this is never below that however impatient `--pace` gets.
+ *
+ * Only the resting holds scale. The two waits in the check-in scene are tied
+ * to lib/mock-session.ts's clock -- which runs a minute a second -- and
+ * stretching those would not hold the shot for longer, it would move the
+ * arithmetic of the thirty-minute rule and change what the bot says.
+ */
+const settle = (page: Page, ms = 900) => page.waitForTimeout(Math.max(300, Math.round(ms * PACE)));
 
 /**
  * Move the way a member moves: click the nav, do not reload the page.
@@ -381,7 +400,9 @@ async function runCommand(page: Page, command: string): Promise<void> {
   await field.pressSequentially(command, { delay: 85 });
   await page.waitForTimeout(500);
   await field.press("Enter");
-  await page.waitForTimeout(1_900);
+  // Through `settle`, so the bot's answer stays on screen long enough to be
+  // read aloud when the take is paced for narration.
+  await settle(page, 1_900);
 }
 
 /* --------------------------------------------------------------------------
