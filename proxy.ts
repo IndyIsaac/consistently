@@ -25,7 +25,7 @@ export const INVITE_COOKIE = "pact-invite";
 const SIGN_IN_ENFORCED = (process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "").length > 0;
 
 /** The signed-in interior. `/pacts` covers `/pacts/[id]` and `/pacts/new`. */
-const INTERIOR = ["/dashboard", "/groups", "/pacts", "/settings"];
+const INTERIOR = ["/dashboard", "/groups", "/pacts", "/settings", "/communities"];
 
 export function proxy(req: NextRequest) {
   const url = req.nextUrl;

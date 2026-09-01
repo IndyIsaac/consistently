@@ -109,6 +109,47 @@
   --scrollbar-thumb-hover: #3a3a3c;
 }
 
+/* ---------------------------------------------------------------------------
+   Category colour — communities only.
+
+   DESIGN.md admits colour against money and nothing else, and that rule still
+   holds everywhere it was written for: status, streaks and navigation stay
+   monochrome, and `owed`/`earned` remain the only values that ever touch a
+   figure. This is a narrow, named exception for one surface. /communities is a
+   directory of seven kinds of thing, and a directory that is browsed rather
+   than read needs its categories separable at a glance — that is wayfinding,
+   which is a different job from meaning.
+
+   Two rules keep it from leaking into the money:
+
+   1. NO RED AND NO GREEN. Not one of the seven is either, so a category
+      swatch can never be mistaken for a forfeit or a payout. Orange is the
+      closest, and it never appears beside a figure.
+   2. IT ONLY EVER TINTS AN ICON OR A LABEL. Never a number, never a border
+      that carries state, never a button that moves money.
+
+   Every pair clears 4.5:1 against its own ground in both themes. The literals
+   live here with the rest of the palette rather than in a component, so the
+   two blocks above stay the only place a colour is decided.
+   --------------------------------------------------------------------------- */
+[data-category="gym"] { --cat-fg: #6d28d9; --cat-bg: #f3f0ff; }
+[data-category="running"] { --cat-fg: #0e7490; --cat-bg: #ecfdff; }
+[data-category="martial-arts"] { --cat-fg: #c2410c; --cat-bg: #fff4ed; }
+[data-category="pilates"] { --cat-fg: #be185d; --cat-bg: #fdf2f7; }
+[data-category="sleep"] { --cat-fg: #1d4ed8; --cat-bg: #eff6ff; }
+[data-category="nutrition"] { --cat-fg: #a16207; --cat-bg: #fefae8; }
+[data-category="study"] { --cat-fg: #475569; --cat-bg: #f4f7fa; }
+
+/* The dark ground needs the values inverted in weight: a light glyph on a deep
+   tint. The light-theme pairs are 5–8:1 on white and would be 1.5:1 here. */
+.dark [data-category="gym"] { --cat-fg: #c4b5fd; --cat-bg: #2b2142; }
+.dark [data-category="running"] { --cat-fg: #67e8f9; --cat-bg: #10323a; }
+.dark [data-category="martial-arts"] { --cat-fg: #fdba74; --cat-bg: #3b2415; }
+.dark [data-category="pilates"] { --cat-fg: #f9a8d4; --cat-bg: #3a1729; }
+.dark [data-category="sleep"] { --cat-fg: #93c5fd; --cat-bg: #14243f; }
+.dark [data-category="nutrition"] { --cat-fg: #fcd34d; --cat-bg: #3a3113; }
+.dark [data-category="study"] { --cat-fg: #cbd5e1; --cat-bg: #1f2937; }
+
 /* Inlined, so each utility resolves the role at its own use site and the two
    blocks above are the only switch. */
 @theme inline {
