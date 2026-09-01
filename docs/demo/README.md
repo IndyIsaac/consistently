@@ -25,9 +25,15 @@ Output lands in `docs/demo/raw/`, which is gitignored — it is regenerated, nev
 
 | | |
 |---|---|
-| `video.webm` | one continuous take, 1206×2622 |
-| `01–17-*.png` | a still at every beat, same resolution |
+| `video.webm` | one continuous take, at the CSS viewport — 402×874 on a phone, 1440×900 on desktop |
+| `01–17-*.png` | a still at every beat, at the viewport **times the scale factor**, so 1206×2622 or 2880×1800 |
 | `beats.md` / `beats.json` | every beat with its millisecond offset into the video |
+
+The stills are larger than the video, and that is not a mistake. `page.screenshot({ scale:
+"device" })` honours `deviceScaleFactor`; Chromium's screencast does not — it arrives in CSS
+pixels. Asking Playwright's `recordVideo.size` for anything bigger **pads the frame rather than
+filling it**, which is how every take before this note came out with the app in the top-left
+quadrant and the rest flat grey.
 
 `beats.md` is the point of the whole thing. Playwright cannot cut a video into scenes, so instead
 every beat stamps the clock — the edit sheet says *the refusal lands at 0:45.4* rather than making
@@ -36,6 +42,7 @@ you scrub for it.
 ### Useful flags
 
 ```bash
+npm run capture -- --serve --shape=desktop     # 1440×900 instead of a phone
 npm run capture -- --serve --only=checkin      # one scene, while iterating
 npm run capture -- --serve --headed            # watch it drive
 npm run capture -- --base-url=http://localhost:3000   # against a server you already have
@@ -43,6 +50,33 @@ npm run capture -- --serve --scale=2           # smaller take
 ```
 
 Scene names: `door`, `dashboard`, `groups`, `channel`, `checkin`, `exemption`, `settings`.
+
+### Shapes
+
+`--shape=phone` (the default) is the iPhone 16 Pro's CSS screen. `--shape=desktop` is 1440×900 —
+the first width past Tailwind's `lg` (1024px), which is where `app/(app)/dashboard/page.tsx` stops
+stacking its pact cards. Below that, desktop is only the phone layout with more air.
+
+Worth knowing before choosing: the dashboard and the crew standings fill a desktop screen well, and
+the channel does not — three messages in a 900px-tall window leaves the best line in the product
+floating in white. The phone take is tighter. An editor can put a phone take on a desktop-shaped
+canvas; it cannot do the reverse.
+
+### Hand the editor an MP4, not the webm
+
+The take is VP8 in a webm with **no duration on the video stream**, which makes editors scrub and
+seek badly — and the file is worth re-encoding anyway:
+
+```bash
+ffmpeg -y -i docs/demo/raw/video.webm \
+  -vf "scale=1920:1200:flags=lanczos" \
+  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -r 30 \
+  -movflags +faststart docs/demo/raw/take.mp4
+```
+
+For a phone take, `scale=1206:-2` keeps the aspect. The upscale is doing real work: the video is
+captured at CSS resolution, so this is what gets it back to something an editor can zoom into
+without it falling apart.
 
 ---
 

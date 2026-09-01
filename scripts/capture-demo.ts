@@ -73,17 +73,43 @@ const ONLY = flag("only", "").split(",").filter(Boolean);
 const SKIP = flag("skip", "").split(",").filter(Boolean);
 
 /**
- * iPhone 16 Pro's CSS screen, taken from app/preview/devices.tsx rather than
- * from a device list, so the footage is the size the design was judged at.
+ * Two shapes, because a demo is shot for one screen or the other and the
+ * product is not the same on both.
+ *
+ *   phone   — iPhone 16 Pro's CSS screen, taken from app/preview/devices.tsx
+ *             rather than from a device list, so the footage is the size the
+ *             design was judged at.
+ *   desktop — 1440x900, the first width past Tailwind's `lg` (1024px), which is
+ *             where app/(app)/dashboard/page.tsx stops stacking its pact cards.
+ *             Below that, desktop is only the phone layout with more air.
+ *
+ * `--shape=desktop`. The scale default follows the shape: 3x on a phone puts
+ * the take at 1206x2622, which survives being scaled into a mockup and
+ * cropped; 3x on desktop would be 4320x2700, which is a bigger frame than any
+ * editor needs and a much heavier file, so desktop defaults to 2.
  */
-const VIEWPORT = { width: 402, height: 874 };
+const SHAPES = {
+  phone: { viewport: { width: 402, height: 874 }, scale: 3 },
+  desktop: { viewport: { width: 1440, height: 900 }, scale: 2 },
+} as const;
+
+type ShapeName = keyof typeof SHAPES;
+
+const SHAPE_NAME = ((): ShapeName => {
+  const asked = flag("shape", "phone");
+  if (asked in SHAPES) return asked as ShapeName;
+  throw new Error(`--shape must be one of ${Object.keys(SHAPES).join(", ")}; got "${asked}"`);
+})();
+
+const SHAPE = SHAPES[SHAPE_NAME];
+
+const VIEWPORT = SHAPE.viewport;
 
 /**
  * Chromium's screencast captures device pixels, so this is the multiplier on
- * the recorded resolution as well as the rendered one. 3 puts the take at
- * 1206x2622, which survives being scaled into a mockup and cropped.
+ * the recorded resolution as well as the rendered one.
  */
-const SCALE = Number(flag("scale", "3"));
+const SCALE = Number(flag("scale", String(SHAPE.scale)));
 
 /**
  * lib/mock-session.ts runs its clock at MOCK_MS_PER_MINUTE = 1_000, so one real
@@ -422,7 +448,9 @@ async function main() {
   await mkdir(OUT_DIR, { recursive: true });
 
   console.log(`\n  ${BASE_URL} → ${path.relative(process.cwd(), OUT_DIR)}`);
-  console.log(`  ${VIEWPORT.width}×${VIEWPORT.height} at ${SCALE}× · ${chosen.length} scenes\n`);
+  console.log(
+    `  ${SHAPE_NAME} · ${VIEWPORT.width}×${VIEWPORT.height} at ${SCALE}× · ${chosen.length} scenes\n`,
+  );
 
   let browser: Browser | undefined;
   let context: BrowserContext | undefined;
@@ -448,16 +476,28 @@ async function main() {
       timezoneId: "Asia/Bangkok",
       locale: "en-GB",
       /**
-       * Recorded at device pixels, not CSS pixels.
+       * `size` is the CSS viewport, NOT the viewport times the scale factor.
        *
-       * Chromium screencasts at the device scale factor, and Playwright then
-       * scales each frame to `size` -- so leaving this at the viewport throws
-       * away exactly the 3x the stills keep, and the take arrives at 402x874
-       * to be blown back up in an editor.
+       * This used to read `VIEWPORT.width * SCALE`, on the belief that Chromium
+       * screencasts at the device scale factor and Playwright then scales each
+       * frame up to `size`. It does not. The screencast arrives in CSS pixels,
+       * and a larger `size` is not filled -- it is padded. Every take came out
+       * with the app in the top-left quadrant and the rest of the frame flat
+       * grey, which reads in an editor as a small video in the corner of a big
+       * canvas, because that is exactly what it was.
+       *
+       * The stills are unaffected: `page.screenshot({ scale: "device" })` does
+       * honour `deviceScaleFactor`, which is why 05-dashboard.png is 2880x1800
+       * and sharp while the video of the same moment was neither.
+       *
+       * So the take is CSS-resolution: 1440x900 on desktop, 402x874 on a phone.
+       * `deviceScaleFactor` still earns its keep for the stills. To hand an
+       * editor more pixels than this, upscale after the fact -- see the ffmpeg
+       * line in docs/demo/README.md.
        */
       recordVideo: {
         dir: OUT_DIR,
-        size: { width: VIEWPORT.width * SCALE, height: VIEWPORT.height * SCALE },
+        size: { width: VIEWPORT.width, height: VIEWPORT.height },
       },
     });
 
@@ -584,7 +624,7 @@ async function writeBeats(failures: { scene: string; error: string }[]): Promise
   const lines = [
     "# Demo capture — edit sheet",
     "",
-    `Take recorded from ${BASE_URL} at ${VIEWPORT.width}×${VIEWPORT.height} (${SCALE}×).`,
+    `Take recorded from ${BASE_URL} on ${SHAPE_NAME} at ${VIEWPORT.width}×${VIEWPORT.height} (${SCALE}×).`,
     "Offsets are into `video.webm`. Drop a zoom on the beats worth landing on.",
     "",
     "| At | Scene | Beat | Still |",
