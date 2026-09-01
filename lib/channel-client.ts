@@ -1,6 +1,6 @@
 "use client";
 
-import { getAccessToken } from "@privy-io/react-auth";
+import { authHeader } from "@/lib/token";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import type { PactView } from "@/lib/view";
 import { isTimeout } from "@/lib/utils";
@@ -115,7 +115,7 @@ async function send(path: string, body: unknown): Promise<Record<string, unknown
    * time; nothing was asking it for one. Onboarding and ProfileForm both
    * already do exactly this, which is why they kept working.
    */
-  const token = await getAccessToken().catch(() => null);
+  const auth = await authHeader();
 
   let res: Response;
   try {
@@ -123,7 +123,7 @@ async function send(path: string, body: unknown): Promise<Record<string, unknown
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...auth,
       },
       body: JSON.stringify(body),
       /**
@@ -191,9 +191,9 @@ export async function getChannel(pactId: string, viewerWallet: string): Promise<
    * bounced off their own dashboard. No `?viewer=` -- the server takes the
    * viewer from the token.
    */
-  const token = await getAccessToken().catch(() => null);
+  const auth = await authHeader();
   const res = await fetch(`/api/pacts/${pactId}/feed`, {
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+    headers: auth,
   });
   if (!res.ok) {
     // Still an empty feed rather than a throw -- this runs on a poll, and a
