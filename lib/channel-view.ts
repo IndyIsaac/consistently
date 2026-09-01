@@ -1,5 +1,6 @@
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import type { BotPact } from "@/lib/bot";
+import { ELIGIBLE_STATUS_SET } from "@/lib/exemptions";
 import { formatMoney } from "@/lib/money";
 import {
   daysLeft,
@@ -134,6 +135,30 @@ function firstNameOf(displayName: string): string {
 }
 
 /**
+ * How many members have actually put money in the vault.
+ *
+ * `/stake` used to answer this with the size of the crew, which counts everyone
+ * invited whether or not they paid, so a funding pact with one payer and three
+ * invitations told the channel "Four staked, ฿4,000 in the vault." The vault
+ * held ฿1,000. The same count sizes the pot everywhere it is shown.
+ *
+ * It reuses the electorate's list rather than writing a second one. That list
+ * already means "has money in this pact" -- it is why `passed` and `failed`
+ * are on it and `invited` is not -- and lib/exemptions.ts says in as many words
+ * that keeping such lists separate is how a numerator and a denominator start
+ * describing different populations. How much is in the vault is the same
+ * question as who may vote on letting somebody off, asked about money.
+ *
+ * fundingStanding below can keep its narrower `status === "staked"` test: it
+ * only ever runs while the pact is funding, when `passed` and `failed` cannot
+ * exist yet.
+ */
+export function paidCount(crew: { status: string }[]): number {
+  const paid: ReadonlySet<string> = ELIGIBLE_STATUS_SET;
+  return crew.filter((m) => paid.has(m.status)).length;
+}
+
+/**
  * Whether the crew is still waiting on somebody's money, and how far off it is.
  *
  * Null once the pact is running, because then there is nothing to wait for and
@@ -145,6 +170,15 @@ function firstNameOf(displayName: string): string {
  * Somebody who left is not counted on either side. They owe nothing and their
  * absence should not hold the rest of the crew.
  */
+/**
+ * The same sentence in both listings: the dashboard card and the groups row.
+ * They were writing it out separately, which is how two screens end up
+ * describing the same state in two ways.
+ */
+export function fundingLine(f: { staked: number; of: number }): string {
+  return `${f.staked} of ${f.of} staked`;
+}
+
 export function fundingStanding(
   status: string,
   crew: { status: string }[],
@@ -174,7 +208,8 @@ export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
   const viewer = crew.find((m) => m.isViewer) ?? null;
   const settles = settlesOn(pact.timezone, now);
   const stake = formatMoney(pact.stakeAmount, pact.stakeCurrency);
-  const pot = formatMoney(pact.stakeAmount * pact.crew.length, pact.stakeCurrency);
+  const paid = paidCount(pact.crew);
+  const pot = formatMoney(pact.stakeAmount * paid, pact.stakeCurrency);
 
   const exemption = pact.pendingExemption;
 
@@ -197,6 +232,7 @@ export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
       rule: pact.ruleConfig,
       stake,
       pot,
+      staked: paid,
       settlesOn: settles,
       viewerEarned: formatMoney(pact.viewerEarned, pact.stakeCurrency),
       viewerLost: formatMoney(pact.viewerLost, pact.stakeCurrency),

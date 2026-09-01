@@ -1,7 +1,9 @@
 "use client";
 
+import { getAccessToken } from "@privy-io/react-auth";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import type { PactView } from "@/lib/view";
+import { isTimeout } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
  * The channel's transport.
@@ -24,8 +26,20 @@ import type { PactView } from "@/lib/view";
  * 2. TELLING A REFUSAL FROM A FAULT. The routes already draw that line: a
  *    guard the member is meant to read comes back 400 with a sentence, and
  *    anything else is a generic 500 (Prisma's messages embed absolute source
- *    paths). `ChannelError` is the 400 half, and `Channel.capture()` already
- *    branches on exactly that distinction.
+ *    paths). `ChannelError` is the 400 half, and `Channel.capture()` branches
+ *    on exactly that distinction.
+ *
+ *    That line had a hole in it, and everything fell through: 401. It is not a
+ *    fault and it is not a guard, it is a session that aged out, and it was
+ *    thrown as a plain Error. `Channel.capture()` rethrows anything that is
+ *    not a `ChannelError`, and `CheckInCamera` awaits it with no catch -- so
+ *    the rejection went unhandled and the member was told nothing at all. A
+ *    channel left open past its token stopped checking in, checking out,
+ *    reacting and voting, silently, all five.
+ *
+ *    So every failure leaves here as a `ChannelError` now. Only the 400 keeps
+ *    the server's own sentence; the rest get one written here, because that is
+ *    what kept Prisma's absolute paths off the screen in the first place.
  * ------------------------------------------------------------------------- */
 
 const LIVE = (process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "").length > 0;
@@ -60,17 +74,62 @@ if (!LIVE) {
   });
 }
 
+/**
+ * How long any one channel action may take. Long enough for a slow phone on a
+ * gym's wifi, short enough that a member finds out rather than waits.
+ */
+const REQUEST_DEADLINE_MS = 20_000;
+
 async function send(path: string, body: unknown): Promise<Record<string, unknown>> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  /**
+   * The bearer, not just the cookie.
+   *
+   * This sent neither, and leaned entirely on `privy-token`. But that cookie
+   * carries an access token with an expiry, and `privyIdFromCookie` verifies
+   * it -- so once it aged out the routes answered 401 and every button in the
+   * channel stopped working. The client SDK holds a fresh token the whole
+   * time; nothing was asking it for one. Onboarding and ProfileForm both
+   * already do exactly this, which is why they kept working.
+   */
+  const token = await getAccessToken().catch(() => null);
+
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      /**
+       * The catch below handles a network that refuses. It does nothing at all
+       * for one that hangs, and this is the transport for every action in the
+       * channel -- check in, check out, react, ask to be let off, vote. The
+       * check-in button sets "Posting" and disables itself, and its `finally`
+       * cannot run on a promise that never settles, so the product's primary
+       * action ended as a permanently dead button on the phone of somebody
+       * standing in a gym on bad wifi. Reload was the only way out.
+       */
+      signal: AbortSignal.timeout(REQUEST_DEADLINE_MS),
+    });
+  } catch (e) {
+    // A phone at the back of a gym. Worth a sentence, not a stack trace.
+    throw new ChannelError(
+      isTimeout(e)
+        ? "That is taking too long. Try again in a moment."
+        : "No connection. Try that again.",
+    );
+  }
+
   const json = await res.json().catch(() => ({}));
+  if (res.ok) return json as Record<string, unknown>;
 
   if (res.status === 400 && typeof json.error === "string") throw new ChannelError(json.error);
-  if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Request failed");
-  return json as Record<string, unknown>;
+  if (res.status === 401) {
+    throw new ChannelError("Your sign-in expired. Refresh the page and try that again.");
+  }
+  throw new ChannelError("That did not go through. Try again.");
 }
 
 /** See note 1 above. Silent, not loud, if it is missed. */
@@ -102,10 +161,22 @@ export async function getPact(pactId: string): Promise<PactView | null> {
 export async function getChannel(pactId: string, viewerWallet: string): Promise<FeedItemDto[]> {
   if (!LIVE) return (await mock()).getChannel(pactId, viewerWallet);
 
-  const res = await fetch(
-    `/api/pacts/${pactId}/feed?viewer=${encodeURIComponent(viewerWallet)}`,
-  );
-  if (!res.ok) return [];
+  /**
+   * The bearer, for the same reason `send` carries one: the route authenticates
+   * now, and leaning on the `privy-token` cookie alone is what left members
+   * bounced off their own dashboard. No `?viewer=` -- the server takes the
+   * viewer from the token.
+   */
+  const token = await getAccessToken().catch(() => null);
+  const res = await fetch(`/api/pacts/${pactId}/feed`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    // Still an empty feed rather than a throw -- this runs on a poll, and a
+    // rejection here has no listener. But it no longer happens silently.
+    console.error(`feed fetch failed: ${res.status}`);
+    return [];
+  }
   return (await res.json()) as FeedItemDto[];
 }
 
@@ -148,11 +219,12 @@ export async function toggleReaction(
   pactId: string,
   itemId: string,
   emoji: string,
-  userWallet: string,
 ): Promise<{ on: boolean }> {
   if (!LIVE) return (await mock()).mockToggleReaction(pactId, itemId, emoji);
 
-  const body = await send(`/api/feed/${itemId}/react`, { userWallet, emoji });
+  // No wallet: the route takes it from the verified token now, and a body that
+  // can name who reacted is a body that can name somebody else.
+  const body = await send(`/api/feed/${itemId}/react`, { emoji });
   return { on: body.on as boolean };
 }
 

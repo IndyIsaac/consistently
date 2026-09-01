@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fundingStanding } from "@/lib/channel-view";
+import { fundingStanding, paidCount } from "@/lib/channel-view";
 import { fundingReply } from "@/lib/bot";
 
 /* ---------------------------------------------------------------------------
@@ -14,6 +14,24 @@ import { fundingReply } from "@/lib/bot";
  * ------------------------------------------------------------------------- */
 
 const member = (status: string) => ({ status }) as { status: string };
+
+describe("how many have actually paid", () => {
+  it("does not count an invitation as money in the vault", () => {
+    // The reported bug: one payer and three invitations announced four stakes
+    // and a full vault, to a crew whose vault held one stake.
+    expect(paidCount([member("staked"), member("invited"), member("invited")])).toBe(1);
+  });
+
+  it("still counts a member who has since passed or failed", () => {
+    // Both of them staked; a settlement only decided which way it went. Counting
+    // only "staked" would empty the pot the moment a period settled.
+    expect(paidCount([member("passed"), member("failed"), member("staked")])).toBe(3);
+  });
+
+  it("does not count somebody who left", () => {
+    expect(paidCount([member("staked"), member("left")])).toBe(1);
+  });
+});
 
 describe("what the channel says about funding", () => {
   it("counts who has paid while the pact is still funding", () => {

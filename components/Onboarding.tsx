@@ -94,7 +94,18 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
   const hasWallet =
     user?.linkedAccounts.some((a) => a.type === "wallet" && a.chainType === "solana") ?? false;
 
-  /** Every call carries the bearer as well as the cookie -- see lib/auth.ts. */
+  /**
+   * Every request this screen makes: the bearer as well as the cookie -- see
+   * lib/auth.ts -- and an upper bound on the wait.
+   *
+   * The balance poll below catches a rejection and schedules the next look
+   * after the await, so a request that *hangs* does not slow the loop down --
+   * it stops it. Money could then land in the wallet with nothing left asking,
+   * and the member sits on "Watching for it." for as long as they are willing
+   * to. The bootstrap above has the same shape and ends on a dead panel.
+   *
+   * A deadline turns both into the rejection each already knows how to handle.
+   */
   const authed = useCallback(
     async (path: string, init?: RequestInit) => {
       const token = await getAccessToken();
@@ -105,6 +116,7 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
           ...(token ? { authorization: `Bearer ${token}` } : {}),
           ...(init?.body ? { "content-type": "application/json" } : {}),
         },
+        signal: AbortSignal.timeout(15_000),
       });
     },
     [getAccessToken],
@@ -182,13 +194,26 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "Could not finish setting up this account.");
+        /**
+         * `bootstrapped` is latched before this runs and is never lowered, so
+         * a reload is the only retry there is -- exactly as it is for the
+         * wallet above, which says so. This did not, and a member sat on a
+         * sentence with nothing to do about it. The server's own message is
+         * kept when it sent one, since it names the actual problem.
+         */
+        setError(
+          body.error
+            ? `${body.error} Reload the page to try again.`
+            : "Could not finish setting up this account. Reload the page and it will try again.",
+        );
         return;
       }
       const me = await res.json();
       setAddress(me.walletAddress);
       if (me.funded) setFunded(true);
-    })().catch(() => setError("Could not finish setting up this account."));
+    })().catch(() =>
+      setError("Could not finish setting up this account. Reload the page and it will try again."),
+    );
   }, [authenticated, walletsReady, wallet, user, authed]);
 
   /**
@@ -215,6 +240,20 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
           }
           // Looked at, and empty. This is the only place that can say so.
           setChecked(true);
+        } else if (res.status === 422) {
+          /**
+           * Permanent, unlike every other failure here. The route says this
+           * account has no wallet it can read a balance for, and looking again
+           * will say the same thing forever -- so the loop stops and the
+           * sentence is shown instead of "Watching for it." indefinitely.
+           */
+          const body = await res.json().catch(() => ({}));
+          setError(
+            typeof body.error === "string"
+              ? body.error
+              : "This account has no usable wallet. Reload the page and it will try again.",
+          );
+          return;
         }
         // A 503 is the RPC being unreachable, not an empty wallet. Either way
         // the answer is to look again.

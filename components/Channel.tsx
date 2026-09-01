@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { getAccessToken } from "@privy-io/react-auth";
+import { isTimeout } from "@/lib/utils";
 import { ArrowLeft, QrCode } from "lucide-react";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import { CheckInCamera } from "@/components/CheckInCamera";
@@ -44,7 +46,7 @@ import {
 // branch is in lib/channel-client.ts and nothing here knows which it got.
 //
 //   getPact          -> GET  /api/pacts/[id]/view
-//   getChannel       -> GET  /api/pacts/[id]/feed?viewer=<wallet>
+//   getChannel       -> GET  /api/pacts/[id]/feed
 //   openSession      -> POST /api/pacts/[id]/sessions     { action: "open" }
 //   closeSession     -> POST /api/pacts/[id]/sessions     { action: "close" }
 //   toggleReaction   -> POST /api/feed/[itemId]/react
@@ -85,6 +87,8 @@ export function Channel({
   viewerWallet,
   showInvite = false,
   needsStake = false,
+  // Renamed on the way in: `openSession` is also the action that starts one.
+  openSession: serverSession = null,
 }: {
   view: ChannelView;
   items: FeedItemDto[];
@@ -93,11 +97,31 @@ export function Channel({
   showInvite?: boolean;
   /** The viewer has joined but not paid. Nothing else is theirs to do yet. */
   needsStake?: boolean;
+  /**
+   * The viewer's session that is still open on the server, if any.
+   *
+   * Without this the state below started at null on every mount, and the server
+   * knew about a session the screen did not. Leaving the page did it -- the
+   * Groups link this component renders itself, a reload, or a phone discarding
+   * a backgrounded tab, which is exactly what happens across a thirty-minute
+   * gym rule.
+   *
+   * The button then read "Check in" again. Pressing it hit the open-session
+   * guard, which refuses without offering a way out: check-out is keyed by
+   * sessionId and the client no longer had one. So the row never got an
+   * endedAt, the day never counted on a checkin_checkout rule -- the default --
+   * and because that guard's lookup is not scoped to a day, the orphan blocked
+   * every check-in for the rest of the pact. One tap on a nav link forfeited
+   * the stake.
+   */
+  openSession?: { sessionId: string; startedAt: number } | null;
 }) {
   const [view, setView] = useState(initialView);
   const [items, setItems] = useState(initialItems);
   const [replies, setReplies] = useState<FeedItemDto[]>([]);
-  const [session, setSession] = useState<{ sessionId: string; startedAt: number } | null>(null);
+  const [session, setSession] = useState<{ sessionId: string; startedAt: number } | null>(
+    serverSession,
+  );
   const [elapsed, setElapsed] = useState(0);
   const [qrOpen, setQrOpen] = useState(showInvite);
   const [pinned, setPinned] = useState(false);
@@ -293,7 +317,18 @@ export function Channel({
         // The refusal. The session stays open and the bot says how much longer.
         say(e.message);
       } else {
-        throw e;
+        /**
+         * Anything else is a bug, not a refusal -- but rethrowing put it in an
+         * unhandled rejection, because this is awaited by CheckInCamera inside
+         * a try/finally with no catch. The member watched the button un-busy
+         * and got no sentence, which is exactly what "the check-in button does
+         * nothing" looked like from the outside.
+         *
+         * The console keeps the real error for whoever is looking; the member
+         * gets told something happened either way.
+         */
+        console.error("[check-in] unexpected failure", e);
+        say("Something went wrong there. Try that again.");
       }
     }
     scrollToFoot();
@@ -309,7 +344,48 @@ export function Channel({
     // Shown at once, then written. The same pure toggle runs on both sides, so
     // the optimistic row and the stored one cannot disagree.
     setItems((rows) => rows.map((row) => (row.id === itemId ? withReactionToggled(row, emoji) : row)));
-    await toggleReaction(view.pactId, itemId, emoji, viewerWallet);
+
+    const stuck = await attempt(
+      () => toggleReaction(view.pactId, itemId, emoji),
+      "That reaction did not stick. Try again.",
+    );
+
+    // The toggle is its own inverse, so undoing it is applying it again. Left
+    // alone the optimistic row simply vanished at the next five-second
+    // refresh, with nothing said -- the two sides disagreeing quietly, which
+    // is the one thing the comment above promises cannot happen.
+    if (!stuck) {
+      setItems((rows) => rows.map((row) => (row.id === itemId ? withReactionToggled(row, emoji) : row)));
+    }
+  }
+
+  /**
+   * Run a channel mutation and say whatever it refuses with.
+   *
+   * lib/channel-client.ts goes to real trouble to guarantee that every failure
+   * leaves it as a ChannelError carrying a sentence somebody wrote for this
+   * moment -- the server's own guard, "Your sign-in expired", "No connection".
+   * Three of its four callers then dropped the promise on the floor.
+   * CommandInput, ExemptionVote and Feed all take `() => void` handlers, so a
+   * rejection went nowhere at all: React error boundaries do not catch
+   * rejected promises and this app registers no `unhandledrejection` listener.
+   *
+   * What that looked like from a chair: type `/exempt broke my ankle`, watch
+   * the field clear, and read nothing. The refusal existed the whole time.
+   */
+  async function attempt(work: () => Promise<unknown>, whenBroken: string): Promise<boolean> {
+    try {
+      await work();
+      return true;
+    } catch (e) {
+      if (e instanceof ChannelError) {
+        say(e.message);
+      } else {
+        console.error("[channel] unexpected failure", e);
+        say(whenBroken);
+      }
+      return false;
+    }
   }
 
   async function run(command: string) {
@@ -357,13 +433,20 @@ export function Channel({
           say(exemptNeedsReasonReply());
           break;
         }
-        await requestExemption({
-          pactId: view.pactId,
-          userWallet: viewerWallet,
-          periodKey: view.periodKey,
-          reason: argument,
-        });
-        await refresh();
+        if (
+          await attempt(
+            () =>
+              requestExemption({
+                pactId: view.pactId,
+                userWallet: viewerWallet,
+                periodKey: view.periodKey,
+                reason: argument,
+              }),
+            "That did not reach the crew. Try again.",
+          )
+        ) {
+          await refresh();
+        }
         break;
       default:
         say(unknownCommandReply(name.toLowerCase()));
@@ -383,12 +466,55 @@ export function Channel({
   async function settle(force: boolean) {
     say(force ? settlingForcedLine() : settlingLine());
     try {
+      /**
+       * The bearer, and the last call in the app that was without one.
+       *
+       * lib/channel-client.ts and lib/upload.ts were both fixed for exactly
+       * this: the privy-token cookie carries an access token with an expiry,
+       * and once it ages out every route answers 401. The client SDK holds a
+       * fresh token the whole time and nothing here was asking for it -- so a
+       * pact left open long enough could not be settled, which is the one
+       * action in this product that moves the money.
+       */
+      const token = await getAccessToken().catch(() => null);
       const res = await fetch(`/api/pacts/${view.pactId}/settle`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ force }),
+        // Generous: a settlement is several transfers, each confirmed. Long
+        // enough not to abandon a real one, bounded so it cannot hang for good.
+        signal: AbortSignal.timeout(180_000),
       });
       const body = await res.json().catch(() => ({}));
+
+      /**
+       * 202 is `res.ok`, and it is not a settlement.
+       *
+       * The route answers it when a payout has already been broadcast and the
+       * run aborted part-way -- the pact half settled, some members written
+       * and some not, and a signature in the body for reconciling. Falling
+       * through to the success branch read `failedCount` off a body that has
+       * none, so `failed` defaulted to 0, and settledLine's first branch
+       * announced "Everyone made it. Nobody paid a thing." to a crew whose
+       * week had just come apart mid-payout.
+       *
+       * components/StakeSheet.tsx has checked for this since it was written.
+       * This call site is the one that did not.
+       */
+      if (res.status === 202) {
+        say(
+          settleFailedLine(
+            typeof body.error === "string"
+              ? body.error
+              : "A payout is in flight. Run it again to pick up where it stopped.",
+          ),
+        );
+        await refresh();
+        return;
+      }
 
       if (!res.ok) {
         say(settleFailedLine(typeof body.error === "string" ? body.error : "Try again."));
@@ -406,8 +532,23 @@ export function Channel({
         }),
       );
       await refresh();
-    } catch {
-      say(settleFailedLine("Could not reach the settlement."));
+    } catch (e) {
+      /**
+       * A timeout is not a failed settlement, and must not be reported as one.
+       *
+       * By this point payouts may already be broadcast -- which is the whole
+       * reason the route answers 202 and the branch above refuses to call that
+       * a clean week. "Could not reach the settlement" invites running it
+       * again, and StakeSheet argues the same thing about the stake it sends.
+       */
+      console.error("settle failed:", e);
+      say(
+        settleFailedLine(
+          isTimeout(e)
+            ? "We lost the connection before this finished. Check the pact before running it again."
+            : "Could not reach the settlement.",
+        ),
+      );
     }
     scrollToFoot();
   }
@@ -415,13 +556,20 @@ export function Channel({
   async function vote(approve: boolean) {
     const exemption = view.exemption;
     if (!exemption) return;
-    await castVote({
-      pactId: view.pactId,
-      exemptionId: exemption.id,
-      userWallet: viewerWallet,
-      approve,
-    });
-    await refresh();
+    if (
+      await attempt(
+        () =>
+          castVote({
+            pactId: view.pactId,
+            exemptionId: exemption.id,
+            userWallet: viewerWallet,
+            approve,
+          }),
+        "That vote did not reach the crew. Try again.",
+      )
+    ) {
+      await refresh();
+    }
     scrollToFoot();
   }
 
@@ -593,7 +741,11 @@ export function Channel({
             something to sit on too, and its negative bottom margin takes back
             the 7rem the app shell reserves for that pill — the band is already
             reserving it. */}
-        <div className="sticky bottom-0 z-20 -mx-5 -mb-28 sm:-mx-8">
+        {/* Above BottomNav, which is fixed at z-40 with a pointer-events-auto
+            pill 240px wide and centred. At this width that pill lands over the
+            Check in button, and a tap on it hit the nav instead -- no picker,
+            no error, nothing. The composer is the thing being used; it wins. */}
+        <div className="sticky bottom-0 z-50 -mx-5 -mb-28 sm:-mx-8">
           <div
             aria-hidden="true"
             className="pointer-events-none h-10"

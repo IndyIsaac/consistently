@@ -8,7 +8,12 @@ import { useStandardWallets } from "@privy-io/react-auth/solana";
 
 import { TriangleAlert, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { phantomBrowseLink, walletPath } from "@/lib/door";
+import { phantomBrowseLink, walletPath,
+  type MarkStore,
+  clearBounced as doorClearBounced,
+  hasBounced as doorHasBounced,
+  markBounced as doorMarkBounced,
+} from "@/lib/door";
 
 /* ---------------------------------------------------------------------------
  * The front door, and the one surface that takes the inverse of the app's
@@ -117,15 +122,78 @@ function serverCanSeeSession() {
 }
 
 /**
+ * Ask the server to set the cookie, because this browser did not.
+ *
+ * Privy writes `privy-token` from JavaScript with the token's own `exp` as an
+ * absolute date, and a machine whose clock runs fast discards it on arrival.
+ * Railway's HTTP logs caught it exactly: signed in, sent to /dashboard,
+ * bounced back by proxy.ts with no cookie, four times over. The token was
+ * valid throughout -- it simply never reached us.
+ *
+ * app/api/session verifies that token the same way every other route does and
+ * sets the cookie with `Max-Age`, which no browser compares against its own
+ * clock. Nothing is granted that the caller did not already hold.
+ *
+ * Only ever reached after the ordinary check has failed, so a member for whom
+ * Privy's own write worked never comes near it.
+ */
+async function askServerForCookie(getAccessToken: () => Promise<string | null>) {
+  try {
+    /**
+     * Both halves are bounded, and neither was.
+     *
+     * This runs only after the ordinary check has already spent three seconds
+     * failing, so by construction it is the bad-network path -- and the race
+     * further up bounds the first token call, not these. A hang here left the
+     * button reading CHECKING and disabled for good, or, with motion on, a
+     * full-screen wipe with nothing behind it: ARRIVAL_LIMIT_MS is armed after
+     * the navigation, and the navigation is what never happens.
+     */
+    const token = await withDeadline(getAccessToken(), AUTH_DEADLINE_MS);
+    if (token === TIMED_OUT || !token) return false;
+
+    const res = await fetch("/api/session", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(AUTH_DEADLINE_MS),
+    });
+    return res.ok && serverCanSeeSession();
+  } catch {
+    // The fallback failing leaves the member exactly where they already were.
+    return false;
+  }
+}
+
+/**
  * Resolves true once the cookie is there, false if it never turned up.
  *
- * `getAccessToken()` comes first because it mints or refreshes the token and
- * Privy writes the cookie in the same breath. It is not the proof, though --
- * the cookie is -- so the verdict comes from the poll either way, and the
- * token call is raced against the deadline so a hung refresh cannot hold the
- * door shut.
+ * The cookie is the proof, not the token, because the cookie is the one fact
+ * proxy.ts checks -- so this reads it first and returns immediately when it is
+ * already set, which is the ordinary sign-in and used to cost a token round
+ * trip before anyone looked.
+ *
+ * Only when it is missing does the rest run: `getAccessToken()` to mint or
+ * refresh, raced against a deadline so a hung refresh cannot hold the door
+ * shut, then a poll, and finally app/api/session as the fallback for the
+ * browser that will not keep what Privy writes.
  */
 async function sessionVisible(getAccessToken: () => Promise<string | null>) {
+  /**
+   * The commonest case, and it used to pay for the rarest one.
+   *
+   * Privy writes the cookie as part of signing in, so by the time anybody asks
+   * this question it is usually already there -- and the answer was still a
+   * token round trip away, because `getAccessToken()` came first
+   * unconditionally. Reading the one fact this function exists to establish,
+   * before spending anything to establish it, makes the ordinary sign-in
+   * immediate and leaves the whole apparatus below for the sign-in that needs
+   * it.
+   */
+  if (serverCanSeeSession()) {
+    clearBounced();
+    return true;
+  }
+
   const deadline = Date.now() + SESSION_WAIT_MS;
 
   try {
@@ -135,9 +203,17 @@ async function sessionVisible(getAccessToken: () => Promise<string | null>) {
   }
 
   while (!serverCanSeeSession()) {
-    if (Date.now() >= deadline) return false;
+    if (Date.now() >= deadline) {
+      // Privy's own write never landed. Ask the server to do it, which is the
+      // one version of this that no browser clock can spoil.
+      const rescued = await askServerForCookie(getAccessToken);
+      if (rescued) clearBounced();
+      return rescued;
+    }
     await pause(SESSION_POLL_MS);
   }
+
+  clearBounced();
   return true;
 }
 
@@ -164,6 +240,33 @@ const MOCK_AUTH: Auth = {
 };
 
 /**
+ * How long either half of the email sign-in may take before the door stops
+ * waiting on it.
+ *
+ * Neither Privy call carries a deadline of its own, and the door's own limits
+ * -- SESSION_WAIT_MS, ARRIVAL_LIMIT_MS -- guard only what happens after one
+ * succeeds. So a request that never settles left `verifying` latched and
+ * `busy` true: the button reads CHECKING, refuses to be pressed again, and
+ * nothing in the component can reach the state that would say so. A browser
+ * reload was the only way out, which is not a thing to discover on a stage
+ * with the room's wifi.
+ *
+ * Twenty seconds is longer than a slow network and shorter than a member
+ * deciding the product is broken. `sendCode` in particular can wait on a
+ * captcha the app may have enabled, which is a real never-resolves candidate.
+ */
+const AUTH_DEADLINE_MS = 20_000;
+
+/** Distinguishable from any value Privy could resolve with. */
+const TIMED_OUT = Symbol("timed out");
+
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  // The annotation is load-bearing: without it the arrow widens to `symbol`
+  // and the race no longer narrows against TIMED_OUT at the call sites.
+  return Promise.race([work, pause(ms).then((): typeof TIMED_OUT => TIMED_OUT)]);
+}
+
+/**
  * Privy throws on a bad address or a wrong code rather than resolving with a
  * verdict, and its messages name its own internals. Both are turned into the
  * one sentence the door can show, in the product's voice.
@@ -173,7 +276,11 @@ function privyAuth(privy: ReturnType<typeof useLoginWithEmail>): Auth {
     async sendCode(email) {
       if (!EMAIL_RE.test(email)) return "That is not an email address.";
       try {
-        await privy.sendCode({ email });
+        const sent = await withDeadline(privy.sendCode({ email }), AUTH_DEADLINE_MS);
+        // Not "could not be reached": it may yet arrive, and telling somebody
+        // their own address is unreachable when the network is the problem
+        // sends them to fix the wrong thing.
+        if (sent === TIMED_OUT) return "That is taking too long. Check your connection and try again.";
         return null;
       } catch {
         return "That address could not be reached. Try again.";
@@ -182,7 +289,15 @@ function privyAuth(privy: ReturnType<typeof useLoginWithEmail>): Auth {
     async verifyCode(code) {
       if (!new RegExp(`^\\d{${CODE_LENGTH}}$`).test(code)) return "That code is not six digits.";
       try {
-        await privy.loginWithCode({ code });
+        const verified = await withDeadline(privy.loginWithCode({ code }), AUTH_DEADLINE_MS);
+        /**
+         * Safe to give up on. If the sign-in did land after all, Privy flips
+         * `authenticated` and the effect watching `alreadyIn` takes them
+         * through -- so the worst this costs is a sentence they can ignore.
+         */
+        if (verified === TIMED_OUT) {
+          return "That is taking too long. Check your connection and try again.";
+        }
         return null;
       } catch {
         // Privy invalidates the code after five attempts and does not say which
@@ -208,10 +323,55 @@ const EMPTY_CODE = Array<string>(CODE_LENGTH).fill("");
  * effect that replaces every time it mounts is the loop.
  *
  * A ref would not hold, because the bounce may remount this component. A
- * module variable lasts exactly as long as the document -- which is the right
- * life for it: a reload is the member's retry, and it should get a clean one.
+ * module variable did, and stopped: it lasts exactly as long as the document,
+ * and the arrival became a real navigation, so every bounce brings a fresh
+ * document and a fresh `false`. Door sends them to /dashboard, the proxy finds
+ * no cookie and sends them back, the door sees an authenticated member and
+ * sends them again -- the loop this was written to stop, rebuilt by the thing
+ * that fixed a different one.
+ *
+ * `sessionStorage` is the lifetime actually wanted: it survives a navigation
+ * and dies with the tab, so a reload is still the member's retry and a new tab
+ * is still a clean start.
+ *
+ * And when it cannot be written -- a browser refusing storage, which is the
+ * same browser that refuses the cookie -- the answer is not to try anyway. An
+ * attempt nobody can remember making is the first step of a loop, so this
+ * reports failure and the caller stops.
  */
-let bouncedOnce = false;
+/**
+ * The three below wrap lib/door.ts, which holds the logic and the reasoning and
+ * is tested there. sessionStorage is read through a getter because touching it
+ * at module scope throws in a private-mode window before the component ever
+ * renders.
+ */
+function markStore(): MarkStore {
+  return sessionStorage;
+}
+
+function hasBounced(): boolean {
+  try {
+    return doorHasBounced(markStore());
+  } catch {
+    return false;
+  }
+}
+
+function clearBounced(): void {
+  try {
+    doorClearBounced(markStore());
+  } catch {
+    // Nothing stored, nothing to forget.
+  }
+}
+
+function markBounced(): boolean {
+  try {
+    return doorMarkBounced(markStore());
+  } catch {
+    return false;
+  }
+}
 
 function Door({
   auth,
@@ -293,7 +453,29 @@ function Door({
   useEffect(() => {
     gate.current = awaitSession;
   }, [awaitSession]);
-  const serverSees = useCallback(async () => (gate.current ? gate.current() : true), []);
+  /**
+   * Never rejects, because two callers cannot survive it if it does.
+   *
+   * `arrive` is reached from `void enter(...)` and the effect below runs it
+   * from a bare async IIFE -- neither has a catch, and neither could usefully
+   * have one, because a door that has already latched `busy` and `verifying`
+   * cannot un-latch them from a rejection it never sees. That is the exact
+   * shape of the bug this file already carries a comment about: the button
+   * un-busies, nothing is said, nothing appears.
+   *
+   * Everything under here is written not to throw. This is the guarantee
+   * rather than the hope, and false is a state the door knows how to render:
+   * it says the session could not be seen and offers a reload, which is the
+   * true thing to say when we could not find out.
+   */
+  const serverSees = useCallback(async () => {
+    try {
+      return gate.current ? await gate.current() : true;
+    } catch (e) {
+      console.error("[door] could not establish the session", e);
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     router.prefetch("/dashboard");
@@ -353,7 +535,7 @@ function Door({
       setError(ARRIVAL_STALLED);
       setStep("stuck");
     }, ARRIVAL_LIMIT_MS);
-  }, [reduceMotion, router, serverSees]);
+  }, [reduceMotion, serverSees]);
 
   /**
    * A door is for people outside. Somebody already signed in and looking at it
@@ -380,7 +562,7 @@ function Door({
       // synchronous setState there cascades a render, which React's own lint
       // rule refuses, and every other refusal on this path already reports
       // itself from here.
-      if (bouncedOnce) {
+      if (hasBounced()) {
         if (!live) return;
         setError(SESSION_UNSEEN);
         setStep("stuck");
@@ -405,7 +587,15 @@ function Door({
       // Set on the way out rather than on the way in, so a development
       // remount -- StrictMode mounts every effect twice -- spends the one
       // attempt on the navigation and not on the rehearsal of it.
-      bouncedOnce = true;
+      //
+      // A navigation that cannot be recorded is not attempted. The browser
+      // that will not hold this is the browser that will not hold the cookie
+      // either, and it would bounce straight back here to try again forever.
+      if (!markBounced()) {
+        setError(SESSION_UNSEEN);
+        setStep("stuck");
+        return;
+      }
 
       // `replace`, and no threshold animation: this is not an arrival, it is a
       // page they should never have been looking at. The animation is for
@@ -419,7 +609,7 @@ function Door({
     return () => {
       live = false;
     };
-  }, [alreadyIn, router, serverSees]);
+  }, [alreadyIn, serverSees]);
 
   const enter = useCallback(
     async (code: string) => {

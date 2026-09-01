@@ -204,9 +204,17 @@ describe("sessions", () => {
     await prisma.user.delete({ where: { id: user.id } });
   });
 
-  it("reaches the caller as a 400, not a 500", async () => {
-    // SessionGuardError is what separates "you have another sixteen minutes"
-    // from a leaked Prisma stack trace. The refusal has to travel on the first.
+  it("refuses an unsigned caller rather than closing somebody else's session", async () => {
+    /**
+     * This route used to take `sessionId` on trust, so anybody could close a
+     * session another member was still inside -- and a check-out time decides
+     * whether their day counted, which decides whose stake moves.
+     *
+     * It asserted a 400 before, because there was no authentication to fail
+     * first. A refusal still has to travel as a refusal: what must never
+     * happen is the 500 that carries a Prisma message with absolute paths and
+     * a snippet of the calling code in it.
+     */
     const { user, pact } = await fixture();
     const { sessionId } = await openSession({
       pactId: pact.id, userWallet: user.walletAddress, photoUrl: null,
@@ -216,8 +224,12 @@ describe("sessions", () => {
       body: JSON.stringify({ action: "close", sessionId }),
     });
     const res = await POST(req, { params: Promise.resolve({ id: pact.id }) });
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/The pact says 30/);
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(typeof body.error).toBe("string");
+    expect(body.error).not.toMatch(/prisma|invocation|\.ts:/i);
+
     await prisma.pact.delete({ where: { id: pact.id } });
     await prisma.user.delete({ where: { id: user.id } });
   });

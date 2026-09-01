@@ -622,6 +622,37 @@ export async function finaliseStake(params: {
     throw new StakeGuardError("You are not in this crew. Nothing was sent.");
   }
 
+  /**
+   * In the crew is not the same as owing money, and this only checked the first.
+   *
+   * `reopen` below has always refused a member who is already staked. This did not, so the
+   * only thing standing between a member and paying twice was the `needsStake` prop on the
+   * pact page. StakeSheet re-enables its button before `router.refresh` lands; the 202 branch
+   * comes back to a live button too, and two tabs need no bug at all.
+   *
+   * A second stake is not recoverable by settling. Each winner is returned one `principal`,
+   * so the duplicate is not returned to anybody -- it lands in `balance`, `pot` takes
+   * everything above the winners' principal, and the money is split among the crew as though
+   * it had been forfeited. The member who paid twice funds everyone else's week.
+   *
+   * The pact's own state matters as much: staking into a pact that has started or settled
+   * puts USDC in a vault whose settlement has already been decided, and there is no operator
+   * path in this build to send it back.
+   */
+  if (membership.status === "left") {
+    throw new StakeGuardError("You have left this crew. Nothing was sent.");
+  }
+  if (membership.status === "staked") {
+    throw new StakeGuardError("You are already staked for this period. Nothing was sent.");
+  }
+  if (pact.status !== "funding") {
+    throw new StakeGuardError(
+      pact.status === "active"
+        ? "This pact has already started. Nothing was sent."
+        : "This pact is settled. Nothing was sent.",
+    );
+  }
+
   const sponsor = loadSponsor();
 
   const tx = deserializeTx(params.signedTxB64);
@@ -761,6 +792,11 @@ export async function finaliseStake(params: {
 
   // The pact starts only once everybody has staked. Nobody is exposed to a rule
   // the rest of the crew has not paid for yet.
+  //
+  // Reaching here at all means the pact was still funding: the guard above refuses any other
+  // status before the transaction is even co-signed. That is what keeps a repeat run from
+  // moving `startsAt` to now -- the field every period key derives from, and the weeks
+  // already lived with it.
   const members = await prisma.membership.findMany({
     where: { pactId: params.pactId, status: { not: "left" } },
   });

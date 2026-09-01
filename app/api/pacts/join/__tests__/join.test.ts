@@ -1,7 +1,23 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "@/app/api/pacts/join/route";
 import { prisma } from "@/lib/db";
+
+/**
+ * Who the verified token says is calling, or null for nobody.
+ *
+ * Only the authentication boundary is stubbed -- everything past it is the real
+ * route against the real database. The route used to read `privyId` out of the
+ * request body, so these tests could name anybody they liked and did; now the
+ * identity has to come from here.
+ */
+const caller: { current: string | null } = { current: null };
+
+vi.mock("@/lib/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth")>()),
+  privyIdFromRequest: async () => caller.current,
+}));
+
+const { POST } = await import("@/app/api/pacts/join/route");
 
 function joinRequest(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/pacts/join", {
@@ -76,10 +92,10 @@ describe("POST /api/pacts/join", () => {
   });
 
   it("404s for an unknown invite token", async () => {
+    caller.current = privyIds.unknownToken;
     const res = await POST(
       joinRequest({
         inviteToken: `no-such-token-${suffix}`,
-        privyId: privyIds.unknownToken,
         walletAddress: `wallet-${privyIds.unknownToken}`,
         displayName: "Invitee",
       }),
@@ -87,11 +103,50 @@ describe("POST /api/pacts/join", () => {
     expect(res.status).toBe(404);
   });
 
+  it("refuses a caller who is not signed in", async () => {
+    caller.current = null;
+    const res = await POST(
+      joinRequest({
+        inviteToken: fundingPact.inviteToken,
+        walletAddress: "wallet-anonymous",
+        displayName: "Nobody",
+      }),
+    );
+    expect(res.status).toBe(401);
+
+    // The point of the refusal: a pact starts only once every member has
+    // staked, so a member added by a stranger -- who never will -- would have
+    // frozen this pact permanently, with everyone's money already in the vault.
+    const memberships = await prisma.membership.findMany({
+      where: { pactId: fundingPact.id },
+    });
+    expect(memberships.length).toBe(0);
+  });
+
+  it("cannot rewrite somebody else's payout address", async () => {
+    // Settlement pays a member at user.walletAddress, and the body used to
+    // carry the privyId whose row got written.
+    caller.current = privyIds.unknownToken;
+    const res = await POST(
+      joinRequest({
+        inviteToken: fundingPact.inviteToken,
+        walletAddress: "attacker-wallet",
+        displayName: "Invitee",
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const victim = await prisma.user.findUnique({ where: { privyId: creator.privyId } });
+    expect(victim?.walletAddress).toBe(`join-creator-wallet-${suffix}`);
+
+    await prisma.membership.deleteMany({ where: { pactId: fundingPact.id } });
+  });
+
   it("refuses to join a pact that is not in funding status", async () => {
+    caller.current = privyIds.notFunding;
     const res = await POST(
       joinRequest({
         inviteToken: activePact.inviteToken,
-        privyId: privyIds.notFunding,
         walletAddress: `wallet-${privyIds.notFunding}`,
         displayName: "Invitee",
       }),
@@ -105,9 +160,9 @@ describe("POST /api/pacts/join", () => {
   });
 
   it("joining twice returns the same membership and does not duplicate it", async () => {
+    caller.current = privyIds.idempotent;
     const payload = {
       inviteToken: fundingPact.inviteToken,
-      privyId: privyIds.idempotent,
       walletAddress: `wallet-${privyIds.idempotent}`,
       displayName: "Invitee",
     };

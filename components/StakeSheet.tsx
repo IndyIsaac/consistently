@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
@@ -8,6 +8,7 @@ import { FlaskConical, TriangleAlert } from "lucide-react";
 import { FieldLabel } from "@/components/Panel";
 import { Select } from "@/components/Select";
 import { PAYOUT_MINTS } from "@/lib/dflow";
+import { isTimeout } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
  * Putting the money in, from the member's side.
@@ -31,7 +32,22 @@ const MINTS = [
 /** Atomic units to a readable figure. Trailing zeroes are noise on a price. */
 function amount(atomic: string, decimals: number): string {
   const n = Number(atomic) / 10 ** decimals;
-  return n.toLocaleString("en-US", { maximumFractionDigits: decimals === 6 ? 2 : 4 });
+  const written = n.toLocaleString("en-US", {
+    maximumFractionDigits: decimals === 6 ? 2 : 4,
+  });
+
+  /**
+   * A quote that rounds away is worse than a long one.
+   *
+   * Two fraction digits is right for a price and wrong for a small one: a
+   * stake under a cent renders "0 USDC, sent straight to the crew's vault" on
+   * the screen that asks somebody to hand over money. Whatever it costs, it
+   * does not cost nothing, and the figure has to say so.
+   */
+  if (n > 0 && Number(written.replace(/,/g, "")) === 0) {
+    return n.toLocaleString("en-US", { maximumSignificantDigits: 2 });
+  }
+  return written;
 }
 
 function b64ToBytes(b64: string): Uint8Array {
@@ -77,11 +93,33 @@ export function StakeSheet({
   const [payout, setPayout] = useState<PayoutMint>(PAYOUT_MINTS[0]);
   const [priced, setPriced] = useState<{ mint: string; quote: Quote } | null>(null);
   const [busy, setBusy] = useState(false);
+  const rehearsalRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (rehearsalRefresh.current) clearTimeout(rehearsalRefresh.current);
+    },
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
   const [rehearsed, setRehearsed] = useState(false);
 
+  /**
+   * Every request this screen makes, with an upper bound on the wait.
+   *
+   * Without one, a network that hangs rather than fails leaves this sheet in
+   * whatever state it was mid-way through: "Pricing it." with a dead button, or
+   * "Staking" with a disabled one. Neither has a retry and neither says
+   * anything, so a reload is the only way out -- of the screen that asks for
+   * money.
+   *
+   * The submit step gets a longer one on purpose. The server bounds its own
+   * confirmation at ninety seconds (lib/solana.ts), and a client that gave up
+   * first would leave a member who cannot tell whether their stake went
+   * through -- which is exactly how somebody pays twice. This waits for the
+   * server to finish being sure, then stops.
+   */
   const post = useCallback(
-    async (body: unknown) => {
+    async (body: unknown, timeoutMs = 20_000) => {
       const authToken = await getAccessToken();
       const res = await fetch(`/api/pacts/${pactId}/stake`, {
         method: "POST",
@@ -90,6 +128,7 @@ export function StakeSheet({
           ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       return { res, body: await res.json().catch(() => ({})) };
     },
@@ -101,9 +140,31 @@ export function StakeSheet({
     (async () => {
       const { res, body } = await post({ step: "quote", inputMint: token.mint });
       if (cancelled) return;
-      if (res.ok) setPriced({ mint: token.mint, quote: body as Quote });
-      else setError(typeof body.error === "string" ? body.error : null);
-    })().catch(() => {});
+      if (res.ok) {
+        setPriced({ mint: token.mint, quote: body as Quote });
+        setError(null);
+        return;
+      }
+      /**
+       * Never `null` on a failure. A 502 from a proxy is not JSON, so `body` is
+       * `{}` and this used to set the error to nothing at all -- leaving the
+       * copy on "Pricing it." and the Stake button greyed out with no sentence
+       * anywhere on the screen and no way to try again.
+       */
+      setError(
+        typeof body.error === "string" ? body.error : "Could not price that. Try again in a moment.",
+      );
+    })().catch((e) => {
+      if (cancelled) return;
+      // Swallowed entirely before this, which is the same dead screen arrived
+      // at from the other direction -- a hung network rather than a refused one.
+      console.error("stake quote failed:", e);
+      setError(
+        isTimeout(e)
+          ? "That is taking too long. Check your connection and try again."
+          : "Could not price that. Try again in a moment.",
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -145,13 +206,18 @@ export function StakeSheet({
         wallet,
       });
 
-      const done = await post({
-        step: "submit",
-        signedTx: bytesToB64(signedTransaction),
-        lastValidBlockHeight: built.body.lastValidBlockHeight,
-        kind: built.body.kind,
-        payoutMint: payout.mint,
-      });
+      const done = await post(
+        {
+          step: "submit",
+          signedTx: bytesToB64(signedTransaction),
+          lastValidBlockHeight: built.body.lastValidBlockHeight,
+          kind: built.body.kind,
+          payoutMint: payout.mint,
+        },
+        // Longer than the server's own ninety-second confirmation, so this
+        // waits for it to finish being sure rather than giving up first.
+        120_000,
+      );
 
       if (done.res.status === 202) {
         // Already broadcast. Retrying would stake twice, so this stops here and
@@ -167,12 +233,28 @@ export function StakeSheet({
       // which it was; the sheet says so before it refreshes.
       if (done.body.dryRun) {
         setRehearsed(true);
-        setTimeout(() => router.refresh(), 2_500);
+        // Cleared on unmount: a refresh two and a half seconds after somebody
+        // left this sheet is a page they are no longer looking at.
+        rehearsalRefresh.current = setTimeout(() => router.refresh(), 2_500);
         return;
       }
       router.refresh();
-    } catch {
-      setError("That did not go through.");
+    } catch (e) {
+      /**
+       * A timeout is not a refusal, and must not be described as one.
+       *
+       * "That did not go through" invites a second attempt, and by this point
+       * the transaction may well have been broadcast -- the same hazard the 202
+       * branch above exists to head off. A stake paid twice is not returned by
+       * settling: each winner gets one principal back and the duplicate is
+       * split among the crew as forfeited money.
+       */
+      console.error("stake failed:", e);
+      setError(
+        isTimeout(e)
+          ? "We lost the connection before this was confirmed. Check the pact before trying again."
+          : "That did not go through.",
+      );
     } finally {
       setBusy(false);
     }

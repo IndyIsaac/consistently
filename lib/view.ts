@@ -98,9 +98,13 @@ export type PactView = {
   viewerStatus: CrewMember["status"];
   /**
    * The viewer's unclosed `Session`, if any. Seeded from the server so a page
-   * refresh does not lose an open session.
+   * refresh, a tab the phone discarded, or a walk through the Groups link does
+   * not lose an open session -- see the note in components/Channel.tsx.
+   *
+   * `startedAt` is milliseconds, not a Date: this crosses from a server
+   * component into a client one, and it feeds an elapsed-minutes count.
    */
-  viewerOpenSessionId: string | null;
+  viewerOpenSession: { sessionId: string; startedAt: number } | null;
 };
 
 export type AppSession = {

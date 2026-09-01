@@ -1,3 +1,5 @@
+import { isTimeout } from "@/lib/utils";
+
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
@@ -73,6 +75,9 @@ export class DFlowError extends Error {
 // but userPublicKey is optional so getQuote (quote-only, no wallet) can share it.
 type CallParams = Omit<OrderParams, "userPublicKey"> & { userPublicKey?: string };
 
+/** Long enough for a real route to be found, short enough to still be an app. */
+const ORDER_TIMEOUT_MS = 12_000;
+
 async function callOrder(params: CallParams): Promise<OrderResponse> {
   const q = new URLSearchParams({
     inputMint: params.inputMint,
@@ -97,10 +102,39 @@ async function callOrder(params: CallParams): Promise<OrderResponse> {
   const headers: Record<string, string> = {};
   if (process.env.DFLOW_API_KEY) headers["x-api-key"] = process.env.DFLOW_API_KEY;
 
-  const res = await fetch(`${BASE_URL}/order?${q.toString()}`, { headers });
+  /**
+   * Bounded, because at the other end of this is a member watching a button.
+   *
+   * Every quote and every stake comes through here. With no signal a router
+   * that was slow rather than down held the route's connection open with no
+   * upper bound, and the stake sheet showed nothing at all -- no price, no
+   * refusal, no end to it. A DFlowError is something the UI already knows how
+   * to say.
+   */
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/order?${q.toString()}`, {
+      headers,
+      signal: AbortSignal.timeout(ORDER_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new DFlowError(
+      "unreachable",
+      isTimeout(e)
+        ? "The router did not answer in time. Try again."
+        : "Could not reach the router.",
+      504,
+    );
+  }
+
   const text = await res.text();
 
-  let body: any;
+  /**
+   * `unknown`, not `any`. It is somebody else's JSON, so nothing here should be
+   * able to reach into it unchecked -- the two reads below narrow it first, and
+   * the cast to OrderResponse at the end is the single deliberate assertion.
+   */
+  let body: unknown;
   try {
     body = JSON.parse(text);
   } catch {
@@ -110,7 +144,12 @@ async function callOrder(params: CallParams): Promise<OrderResponse> {
   }
 
   if (!res.ok) {
-    throw new DFlowError(body?.code ?? "unknown", body?.msg ?? "request failed", res.status);
+    const fault = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    throw new DFlowError(
+      typeof fault.code === "string" ? fault.code : "unknown",
+      typeof fault.msg === "string" ? fault.msg : "request failed",
+      res.status,
+    );
   }
   return body as OrderResponse;
 }

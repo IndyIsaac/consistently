@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { DayMarkers } from "@/components/DayMarkers";
 import { formatMoney } from "@/lib/money";
+import { fundingLine, fundingStanding } from "@/lib/channel-view";
 import { isTodayDone, ordinal, standingLine, weekDayMarks } from "@/lib/pact-view";
 import type { RuleConfig, SessionRecord } from "@/lib/rules";
 import type { LeaderRow } from "@/lib/stats";
@@ -14,6 +15,8 @@ import type { LeaderRow } from "@/lib/stats";
 export type PactCardMember = LeaderRow & {
   isViewer: boolean;
   sessions: SessionRecord[];
+  /** `Membership.status` -- who has actually paid. */
+  status: string;
 };
 
 export type PactCardPact = {
@@ -24,6 +27,8 @@ export type PactCardPact = {
   stakeAmount: number;
   stakeCurrency: string;
   crew: PactCardMember[];
+  /** Prisma `PactStatus`. A pact runs only once everybody has staked. */
+  status: "funding" | "active" | "settled";
   /** Prisma `MemberStatus` for the viewer. `invited` means they have not paid. */
   viewerStatus: "invited" | "staked" | "passed" | "failed" | "left";
 };
@@ -33,6 +38,8 @@ export function PactCard({ pact, now }: { pact: PactCardPact; now: Date }) {
   const rank = pact.crew.findIndex((m) => m.isViewer);
   const me = pact.crew[rank];
   if (!me) return null;
+
+  const funding = fundingStanding(pact.status, pact.crew);
 
   const marks = weekDayMarks(me.sessions, pact.ruleConfig, pact.timezone, now);
   const todayDone = isTodayDone(marks);
@@ -85,8 +92,14 @@ export function PactCard({ pact, now }: { pact: PactCardPact; now: Date }) {
         <h2 className="truncate text-[15px] font-bold tracking-[-0.015em] text-ink">
           {pact.name}
         </h2>
+        {/* A placing needs a contest, and there is not one until everybody
+            has paid: nobody is judged on a week that has not begun, and the
+            denominator counts members who can neither win nor forfeit yet.
+            What the crew is waiting for is the only standing there is. */}
         <span className="shrink-0 text-[13px] text-grey-on-ground">
-          {ordinal(rank + 1)} of {pact.crew.length}
+          {funding
+            ? fundingLine(funding)
+            : `${ordinal(rank + 1)} of ${pact.crew.length}`}
         </span>
       </div>
 

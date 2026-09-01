@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight, Plus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
 import { DashedRule, Panel } from "@/components/Panel";
+import { fundingLine, fundingStanding } from "@/lib/channel-view";
 import { formatMoney } from "@/lib/money";
 import { getSession } from "@/lib/session";
 import type { PactView } from "@/lib/view";
@@ -13,6 +14,7 @@ export const metadata = { title: "Groups · Consistently" };
 function GroupRow({ pact }: { pact: PactView }) {
   const rank = pact.crew.findIndex((m) => m.isViewer);
   const me = pact.crew[rank];
+  const funding = fundingStanding(pact.status, pact.crew);
 
   return (
     <li>
@@ -65,8 +67,15 @@ function GroupRow({ pact }: { pact: PactView }) {
                     {me.daysDone}
                     <span className="font-normal text-grey-on-ground"> of {me.required}</span>
                   </p>
+                  {/* "this week" is a claim, and it is false until everybody
+                      has staked -- `startsAt` is null and no week has begun.
+                      So is the placing: it ranks a member against people who
+                      can neither win nor forfeit yet, on days nobody is being
+                      judged for. */}
                   <p className="mt-0.5 text-[13px] text-grey-on-ground">
-                    this week · {ordinal(rank + 1)} of {pact.crew.length}
+                    {funding
+                      ? fundingLine(funding)
+                      : `this week · ${ordinal(rank + 1)} of ${pact.crew.length}`}
                   </p>
                 </>
               ) : (

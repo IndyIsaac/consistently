@@ -1,13 +1,48 @@
+/**
+ * Somebody else's API, on the path that creates a pact.
+ *
+ * A third party that is slow rather than down is the worse of the two: with
+ * no signal this await had no upper bound, so POST /api/pacts held its
+ * connection open and the create form span with nothing to read. Failing in
+ * five seconds is a sentence; hanging is a demo.
+ */
+const FX_TIMEOUT_MS = 5_000;
+
 export async function fetchUsdRate(currency: string): Promise<number> {
   const code = currency.toUpperCase();
   if (code === "USD" || code === "USDC") return 1;
 
-  const res = await fetch(`https://api.frankfurter.app/latest?from=${code}&to=USD`);
+  let res: Response;
+  try {
+    res = await fetch(`https://api.frankfurter.app/latest?from=${code}&to=USD`, {
+      signal: AbortSignal.timeout(FX_TIMEOUT_MS),
+    });
+  } catch (e) {
+    // An abort and a refused connection mean the same thing to the caller:
+    // there is no rate, so there is no pact.
+    throw new Error(
+      `FX lookup failed for ${code}: ${e instanceof Error ? e.message : "unreachable"}`,
+    );
+  }
   if (!res.ok) throw new Error(`FX lookup failed for ${code}: ${res.status}`);
 
   const body = (await res.json()) as { rates?: Record<string, number> };
   const rate = body.rates?.USD;
-  if (typeof rate !== "number") throw new Error(`No USD rate returned for ${code}`);
+
+  /**
+   * A number is not yet a rate.
+   *
+   * This checked the type and nothing else, and every use of the value is a
+   * division: `fromUsdcAtomic` divides by it to write a figure on a dashboard,
+   * and `toUsdcAtomic` multiplies by it to decide how much USDC a stake is.
+   * Zero makes the first Infinity and the second nothing; NaN poisons both,
+   * and `BigInt(NaN)` throws from the middle of creating a pact. A rate is a
+   * positive finite number, and a pact denominated in something else is not a
+   * pact.
+   */
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
+    throw new Error(`No usable USD rate returned for ${code}: ${String(rate)}`);
+  }
   return rate;
 }
 

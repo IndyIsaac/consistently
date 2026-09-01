@@ -68,3 +68,87 @@ export function phantomBrowseLink(url: string, invite?: string | null): string {
     `?ref=${encodeURIComponent(target.origin)}`
   );
 }
+
+/* ---------------------------------------------------------------------------
+ * The bounce mark: "this tab already tried crossing and came straight back".
+ *
+ * proxy.ts decides who is signed in by whether the session cookie is present.
+ * The door checks the same cookie before navigating, so the two normally agree
+ * -- and when they do not, pushing anyway produces a loop that costs the member
+ * their browser rather than their place in it. The mark is what stops the
+ * second attempt.
+ *
+ * It has to survive the navigation to be worth anything, which is why it lives
+ * in sessionStorage rather than a module variable: a hard navigation reloads
+ * the document and takes module state with it. That is also what made it
+ * dangerous. It is written immediately before the navigation, including the
+ * navigation that WORKS, and there is no code that runs afterwards to take it
+ * back -- a successful navigation is the end of that document.
+ *
+ * So it expires. A real loop returns within about one redirect; anything older
+ * is a different visit and must not be treated as evidence about this one.
+ * Without the expiry a member who signed in normally carried the mark for the
+ * life of the tab, and the next time they reached the door -- an hour later,
+ * cookie expired, sent back by the proxy -- they were told they were signed in
+ * and the server could not see it, forever, because the check ran before
+ * anything that could have cleared it. Only a new tab escaped.
+ *
+ * Storage and clock are parameters so this is testable without a browser, and
+ * because every access is one a private-mode window can throw on.
+ * ------------------------------------------------------------------------- */
+
+export const BOUNCE_KEY = "consistently:bounced-once";
+
+/** Long enough for a redirect to come back, far short of a session. */
+export const BOUNCE_TTL_MS = 30_000;
+
+/** Just the part of `Storage` this needs, so a test can pass a Map. */
+export type MarkStore = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+};
+
+export function clearBounced(store: MarkStore): void {
+  try {
+    store.removeItem(BOUNCE_KEY);
+  } catch {
+    // Nothing was stored, so there is nothing to forget.
+  }
+}
+
+/**
+ * True only for a mark made recently enough to describe what is happening now.
+ * A stale one is deleted rather than merely ignored, so a long-lived tab does
+ * not carry a dead mark around.
+ */
+export function hasBounced(store: MarkStore, now: number = Date.now()): boolean {
+  try {
+    const at = Number(store.getItem(BOUNCE_KEY));
+    if (!Number.isFinite(at) || at <= 0) return false;
+    if (now - at > BOUNCE_TTL_MS) {
+      clearBounced(store);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Records the attempt, and reports whether the record took.
+ *
+ * A browser that will not hold this will not hold the session cookie either,
+ * and an attempt nobody can remember making is the first step of the loop --
+ * so the caller is expected to stop rather than navigate anyway.
+ */
+export function markBounced(store: MarkStore, now: number = Date.now()): boolean {
+  try {
+    const stamp = String(now);
+    store.setItem(BOUNCE_KEY, stamp);
+    return store.getItem(BOUNCE_KEY) === stamp;
+  } catch {
+    return false;
+  }
+}

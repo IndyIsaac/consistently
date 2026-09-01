@@ -7,7 +7,7 @@ import { ArrowRight, TriangleAlert } from "lucide-react";
 import { DashedRule, FIELD, FieldLabel, Panel } from "@/components/Panel";
 import { Select } from "@/components/Select";
 import { RuleEditor } from "@/components/RuleEditor";
-import { CURRENCIES, currencySymbol } from "@/lib/money";
+import { CURRENCIES, formatMoney } from "@/lib/money";
 import { ruleSentence } from "@/lib/pact-view";
 import type { RuleConfig } from "@/lib/rules";
 
@@ -183,9 +183,13 @@ export function NewPact() {
           <Panel className="mt-9">
             <FieldLabel>The rule</FieldLabel>
             <p className="mt-3 text-[16px] leading-relaxed text-ink">{ruleSentence(rule)}</p>
+            {/* formatMoney, not a figure assembled here. `toLocaleString`
+                defaults to three fraction digits and writes forty cents as
+                "$0.4", and every other money figure in the product goes
+                through one function so that they cannot disagree about what
+                the same number looks like. */}
             <p className="mt-1 text-[14px] text-grey-on-ground">
-              {currencySymbol(stakeCurrency)}
-              {stakeAmount.toLocaleString("en-US")} each, every {rule.period}.
+              {formatMoney(stakeAmount, stakeCurrency)} each, every {rule.period}.
             </p>
 
             <DashedRule className="mt-6" />

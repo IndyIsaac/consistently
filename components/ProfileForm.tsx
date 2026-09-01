@@ -96,7 +96,27 @@ export function ProfileForm({ initial }: {
   }
 
   async function save() {
+    /**
+     * Wrapped, like onAvatarChange above it and for the same reason.
+     *
+     * Without this a throw -- a phone that lost signal mid-request, a token
+     * refresh that failed, a body that came back as something other than JSON
+     * -- left `state` on "saving" for good. The button stays disabled and
+     * reading "Saving", the banner below stays empty because nothing set an
+     * error, and the only way out is a reload that loses whatever was typed.
+     * The failure was real and the screen said nothing about it.
+     */
     setState("saving");
+    try {
+      await attemptSave();
+    } catch (err) {
+      console.error("profile save failed:", err);
+      setError(err instanceof Error ? err.message : "Could not save.");
+      setState("error");
+    }
+  }
+
+  async function attemptSave() {
     const token = await getAccessToken();
     const res = await fetch("/api/me", {
       method: "PATCH",

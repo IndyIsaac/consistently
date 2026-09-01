@@ -382,6 +382,9 @@ function primeStake() {
 
   db.pact.findUniqueOrThrow.mockResolvedValue({
     id: "p1",
+    // A stake happens on a pact that is still funding, by a member who has not
+    // paid yet. Both are guards now, so both belong in the fixture.
+    status: "funding",
     stakeUsdc: STAKE,
     vaultAddress: vault.publicKey.toBase58(),
     stakeCurrency: "THB",
@@ -391,6 +394,7 @@ function primeStake() {
   // rather than looking the wallet up a second time.
   db.membership.findFirst.mockResolvedValue({
     id: "m1",
+    status: "invited",
     user: { id: "u1", displayName: "Dave" },
   });
   db.membership.findMany.mockResolvedValue([]);
@@ -434,6 +438,66 @@ describe("finaliseStake, on what actually arrived", () => {
     await expect(stake(handBuiltTransfer(1n))).rejects.toThrow(
       /put ฿0 into the vault and the stake is ฿1,000/,
     );
+  });
+
+  it("refuses a member who has already staked, before anything is broadcast", async () => {
+    /**
+     * A second stake is not recoverable by settling: each winner is returned
+     * one principal, so the duplicate lands in the pot and is split among the
+     * crew as though it had been forfeited. The member who paid twice funds
+     * everyone else's week.
+     *
+     * `reopen` has always refused this; `submit` did not, so the only thing
+     * stopping it was a disabled button -- and StakeSheet re-enables that
+     * before router.refresh lands, the 202 branch returns to a live one, and
+     * two tabs need no bug at all.
+     */
+    db.membership.findFirst.mockResolvedValue({
+      id: "m1",
+      status: "staked",
+      user: { id: "u1", displayName: "Dave" },
+    });
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toThrow(
+      "You are already staked for this period. Nothing was sent.",
+    );
+    // The point of refusing early: nothing was co-signed and nothing was sent.
+    expect(chain.broadcasts).toBe(0);
+  });
+
+  it("refuses a stake into a pact that has already started", async () => {
+    // The vault's settlement is already decided, and there is no operator path
+    // in this build to send money back out of it.
+    db.pact.findUniqueOrThrow.mockResolvedValue({
+      id: "p1",
+      status: "active",
+      stakeUsdc: STAKE,
+      vaultAddress: vault.publicKey.toBase58(),
+      stakeCurrency: "THB",
+      fxRateToUsd: { toNumber: () => 0.0285 },
+    });
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toThrow(
+      "This pact has already started. Nothing was sent.",
+    );
+    expect(chain.broadcasts).toBe(0);
+  });
+
+  it("does not move startsAt when the pact is already running", async () => {
+    // Every period key derives from startsAt, so moving it would make the weeks
+    // already lived unsettleable.
+    db.pact.findUniqueOrThrow.mockResolvedValue({
+      id: "p1",
+      status: "active",
+      stakeUsdc: STAKE,
+      vaultAddress: vault.publicKey.toBase58(),
+      stakeCurrency: "THB",
+      fxRateToUsd: { toNumber: () => 0.0285 },
+    });
+    db.membership.findMany.mockResolvedValue([{ status: "staked" }]);
+
+    await expect(stake(handBuiltTransfer(STAKE))).rejects.toThrow();
+    expect(db.pact.update).not.toHaveBeenCalled();
   });
 
   it("takes the first stake into a vault that has never held USDC", async () => {

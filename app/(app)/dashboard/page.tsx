@@ -1,3 +1,4 @@
+import { TriangleAlert } from "lucide-react";
 import { CrewTable, type CrewRowData } from "@/components/CrewTable";
 import Link from "next/link";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
@@ -96,8 +97,37 @@ function crewRows(pact: PactView, now: Date): CrewRowData[] {
   });
 }
 
-export default async function DashboardPage() {
-  const { now, currency, pacts } = await getSession();
+/**
+ * The one thing this page is ever told by the route that sent somebody here.
+ *
+ * app/join/route.ts redeems an invite and, when it cannot, redirects to
+ * `/dashboard?crew=closed` -- a pact that has already started refuses new
+ * members by design. Nothing read that parameter. A member who scanned a
+ * crew's code and did everything right landed on their own empty dashboard
+ * with no crew, no error, and nothing on screen connecting the two.
+ *
+ * The refusal is correct. Being silent about it was not.
+ */
+function CrewClosed() {
+  return (
+    <p
+      role="status"
+      className="mx-auto mt-6 flex w-full max-w-[54rem] items-start gap-2 px-5 text-[14px] leading-relaxed text-grey-on-ground sm:px-8"
+    >
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      That crew has already started, so it is closed to new members. Ask them to
+      set up a new one and send you the code before anybody stakes.
+    </p>
+  );
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ crew?: string }>;
+}) {
+  const [{ now, currency, pacts }, query] = await Promise.all([getSession(), searchParams]);
+  const crewClosed = query.crew === "closed";
 
   /**
    * The first screen after the door, for somebody who has just arrived.
@@ -108,7 +138,17 @@ export default async function DashboardPage() {
    * A ledger of nothing is a worse greeting than a sentence saying what this
    * is for.
    */
-  if (pacts.length === 0) return <FirstRun />;
+  if (pacts.length === 0)
+    return (
+      <>
+        {crewClosed && (
+          <div className="mx-auto w-full max-w-[54rem] px-5 pt-6 sm:px-8">
+            <CrewClosed />
+          </div>
+        )}
+        <FirstRun />
+      </>
+    );
 
   const earned = pacts.reduce((sum, p) => sum + p.viewerEarned, 0);
   const lost = pacts.reduce((sum, p) => sum + p.viewerLost, 0);
@@ -118,6 +158,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-[54rem] px-5 pt-10 sm:px-8 sm:pt-14">
+      {/* Also here, not only above the empty state. Somebody already in two
+          crews who scans a third one's code after it has started is the
+          likeliest person to hit this, and they were the one it did not
+          tell. */}
+      {crewClosed && <CrewClosed />}
+
       <h1 className="text-[clamp(2rem,7vw,3rem)] leading-[1.03] font-extrabold tracking-[-0.035em] text-balance text-ink">
         {net === 0 ? (
           "You are square."

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireUser, UnauthorizedError } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   ELIGIBLE_STATUSES,
@@ -42,8 +43,23 @@ export async function requestExemption(params: {
 
   const pact = await prisma.pact.findUniqueOrThrow({
     where: { id: params.pactId },
-    select: { ruleConfig: true },
+    select: { ruleConfig: true, status: true },
   });
+  /**
+   * There is no week to be let off yet. Without this, /exempt on a pact still
+   * waiting for everybody to stake wrote a real exemption row and announced in
+   * the feed that somebody had asked to be excused from a period that has not
+   * begun -- and `startsAt` is null until the last member pays, so the
+   * periodKey it was filed under describes nothing.
+   */
+  if (pact.status !== "active") {
+    throw new ExemptionGuardError(
+      pact.status === "funding"
+        ? "This pact has not started yet."
+        : "This pact is settled. There is nothing left to be excused from.",
+    );
+  }
+
   const parsedRule = RuleConfigSchema.safeParse(pact.ruleConfig);
   if (parsedRule.success && parsedRule.data.exemption === "none") {
     throw new ExemptionGuardError("This pact's rules don't allow exemptions.");
@@ -153,6 +169,30 @@ export async function castVote(params: {
   return { status, approvals, needed };
 }
 
+/**
+ * The caller is who they say they are, and the wallet in the body is theirs.
+ *
+ * These routes took `userWallet` from the request body and believed it. The
+ * README says so plainly -- "the inputs to a settlement verdict are
+ * forgeable" -- and it is the honest description: a check-in and an exemption
+ * vote both decide who forfeits money, and either could be posted on somebody
+ * else's behalf by anyone who knew their address, which is printed on the
+ * pact page.
+ *
+ * The client has sent a bearer since lib/channel-client.ts started asking the
+ * SDK for one, so this costs a member nothing. It only removes the part where
+ * the server took the body's word for it.
+ */
+async function callerWallet(req: NextRequest, claimed: unknown): Promise<string> {
+  const user = await requireUser(req);
+  if (typeof claimed === "string" && claimed !== user.walletAddress) {
+    // A guard error, so it leaves as a 400 with this sentence on it, which is
+    // the one shape lib/channel-client.ts passes through to the member.
+    throw new ExemptionGuardError("That is not your wallet.");
+  }
+  return user.walletAddress;
+}
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
@@ -163,7 +203,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json(
         await requestExemption({
           pactId: id,
-          userWallet: body.userWallet,
+          userWallet: await callerWallet(req, body.userWallet),
           periodKey: body.periodKey,
           reason: body.reason,
         }),
@@ -173,7 +213,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json(
         await castVote({
           exemptionId: body.exemptionId,
-          userWallet: body.userWallet,
+          userWallet: await callerWallet(req, body.userWallet),
           approve: Boolean(body.approve),
         }),
       );
@@ -182,6 +222,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   } catch (e) {
     if (e instanceof ExemptionGuardError) {
       return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    /**
+     * An expired sign-in is not a fault. Without this it fell to the generic
+     * 500 below, so a member whose token had aged out got "request failed" --
+     * indistinguishable from a crash, to them and to anyone debugging it. The
+     * client can only tell them to sign in again if it is told that is what
+     * happened.
+     */
+    if (e instanceof UnauthorizedError) {
+      return NextResponse.json({ error: e.message }, { status: 401 });
     }
     console.error("POST /api/pacts/[id]/exemptions failed:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Exemption request failed" }, { status: 500 });

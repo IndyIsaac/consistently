@@ -7,11 +7,39 @@ import {
 } from "@solana/web3.js";
 import bs58 from "bs58";
 
+/**
+ * How long any single RPC call may take.
+ *
+ * Every RPC in the app goes through here and none of them was bounded. An
+ * endpoint that hangs rather than refuses is the worst case for a server
+ * component: lib/holdings.ts is awaited during the render of the settings page,
+ * and there is no loading.tsx or Suspense boundary anywhere in app/, so the
+ * navigation simply never completes -- a tap on Settings that does nothing, for
+ * as long as the member is willing to look at it.
+ *
+ * It is not only the screens. `deliveredToVault` in lib/stake.ts retries a
+ * bounded four times but has no bound on total time, so one hung getTransaction
+ * turns "a couple of seconds" into forever, while the member waits to find out
+ * whether their stake arrived.
+ *
+ * Twelve seconds is well past a healthy call to a paid endpoint and well short
+ * of a member deciding the app is broken. A timed-out call rejects, which every
+ * caller here already treats as a failure it can report.
+ */
+const RPC_TIMEOUT_MS = 12_000;
+
 export function getConnection(): Connection {
-  return new Connection(
-    process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com",
-    "confirmed",
-  );
+  return new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", {
+    commitment: "confirmed",
+    /**
+     * web3.js calls this for every request, so the deadline is per call rather
+     * than shared -- a long confirmation poll is many short requests, not one
+     * long one, and submitAndConfirm keeps its own ninety-second bound over the
+     * top of them.
+     */
+    fetch: (input, init) =>
+      fetch(input as RequestInfo, { ...init, signal: AbortSignal.timeout(RPC_TIMEOUT_MS) }),
+  });
 }
 
 export function deserializeTx(base64: string): VersionedTransaction {
