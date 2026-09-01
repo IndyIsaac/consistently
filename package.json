@@ -14,7 +14,8 @@
     "rehearse": "tsx scripts/rehearse.ts",
     "seed": "tsx scripts/seed-demo.ts",
     "reset": "tsx scripts/reset-demo.ts",
-    "capture": "tsx scripts/capture-demo.ts"
+    "capture": "tsx scripts/capture-demo.ts",
+    "review": "node scripts/review-take.mjs docs/demo/raw"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

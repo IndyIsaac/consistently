@@ -51,6 +51,16 @@ npm run capture -- --serve --scale=2           # smaller take
 
 Scene names: `door`, `dashboard`, `groups`, `channel`, `checkin`, `exemption`, `settings`.
 
+### Looking at a take
+
+```bash
+npm run review     # http://localhost:3210
+```
+
+The video at the top, then every still below it captioned with the timestamp it sits at. It reads
+`beats.json`, prefers `take.mp4` over the raw webm when both are there, and has no dependencies —
+it is node's own http server and nothing else.
+
 ### Shapes
 
 `--shape=phone` (the default) is the iPhone 16 Pro's CSS screen. `--shape=desktop` is 1440×900 —
