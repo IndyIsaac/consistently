@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 /* ---------------------------------------------------------------------------
  * GET /leave -- drop a session cookie the server cannot use, and go to the door.
@@ -26,8 +26,26 @@ import { NextRequest, NextResponse } from "next/server";
  * redirects here instead of to `/`.
  * ------------------------------------------------------------------------- */
 
-export async function GET(req: NextRequest) {
-  const res = NextResponse.redirect(new URL("/", req.url));
+export async function GET() {
+  /**
+   * A relative Location, set by hand, because `NextResponse.redirect` needs an
+   * absolute URL and every way of building one here is wrong behind a proxy.
+   *
+   * `new URL("/", req.url)` resolved against the address the server is actually
+   * bound to, not the address the member typed. On Railway that is the internal
+   * one, so production sent them to `https://localhost:8080/` -- a browser
+   * error page, at the exact moment they are being rescued from a redirect
+   * loop. Caught by curling the deployed app; nothing local shows it, because
+   * locally the two addresses are the same.
+   *
+   * proxy.ts has always been right about this: it redirects through
+   * `req.nextUrl`, which keeps the original host, and its Location header
+   * reads `/`. A route handler has no nextUrl, and reconstructing the origin
+   * from x-forwarded-* means trusting headers to build a redirect. A relative
+   * reference is allowed by RFC 7231 and the browser resolves it against the
+   * URL it already has, which is the one address guaranteed to be right.
+   */
+  const res = new NextResponse(null, { status: 307, headers: { Location: "/" } });
   res.cookies.delete("privy-token");
   return res;
 }
