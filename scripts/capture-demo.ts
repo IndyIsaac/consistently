@@ -60,7 +60,16 @@ const HEADED = process.argv.includes("--headed");
  * for being outside it. A fresh process is the only way to get the same take
  * twice, which is the entire premise of capturing rather than performing.
  */
-const SERVE = process.argv.includes("--serve");
+const SERVE_FLAG = process.argv.includes("--serve");
+
+/**
+ * Film a production build rather than a dev server. Implies `--serve`, because
+ * the point is what this script starts, not what happens to be on :3000.
+ */
+const PROD = process.argv.includes("--prod");
+
+const SERVE = SERVE_FLAG || PROD;
+
 const SERVE_PORT = flag("port", "3210");
 
 let BASE_URL = flag(
@@ -169,6 +178,37 @@ function stamp(ms: number): string {
 /** Let an animation land before the shutter. The app's scene transitions are 300ms. */
 const settle = (page: Page, ms = 900) => page.waitForTimeout(ms);
 
+/**
+ * Move the way a member moves: click the nav, do not reload the page.
+ *
+ * Every scene used to open with `page.goto`, which is a hard load. The app
+ * shell remounts, and components/Arrival.tsx replays its 0.6s blur-and-rise
+ * from nothing -- so the take carried a blank white screen at every scene
+ * boundary, seven times over, and read as jumpy for a reason that had nothing
+ * to do with frame rate. Arrival's own note says it "runs once. The shell
+ * persists across tab changes"; a `goto` per scene defeats exactly that.
+ *
+ * Falling back to `goto` keeps every scene independently runnable, which is
+ * what `--only=checkin` depends on. The fallback is also the honest path for
+ * the front door, where a real arrival *is* a page load.
+ */
+async function go(page: Page, path: string, navLabel?: string): Promise<void> {
+  if (navLabel && page.url().startsWith(BASE_URL) && !page.url().endsWith(path)) {
+    // Case-insensitive: components/BottomNav.tsx writes "Dashboard" but the
+    // label is uppercased in CSS, and the accessible name can come back either
+    // way depending on how the tree is computed.
+    const link = page.getByRole("link", {
+      name: new RegExp(`^${navLabel}$`, "i"),
+    });
+    if (await link.isVisible().catch(() => false)) {
+      await link.click();
+      await page.waitForURL(`**${path}`, { timeout: 15_000 }).catch(() => {});
+      return;
+    }
+  }
+  await page.goto(`${BASE_URL}${path}`, { waitUntil: "domcontentloaded" });
+}
+
 /* --------------------------------------------------------------------------
  * Scenes
  *
@@ -222,7 +262,7 @@ const SCENES: Scene[] = [
     name: "dashboard",
     /** Everything across every pact at once — the "how am I doing" screen. */
     run: async (page) => {
-      await page.goto(`${BASE_URL}/dashboard`, { waitUntil: "domcontentloaded" });
+      await go(page, "/dashboard", "Dashboard");
       await settle(page, 1_800);
       await beat(page, "dashboard", "Dashboard — streaks, earned, lost");
 
@@ -235,7 +275,7 @@ const SCENES: Scene[] = [
   {
     name: "groups",
     run: async (page) => {
-      await page.goto(`${BASE_URL}/groups`, { waitUntil: "domcontentloaded" });
+      await go(page, "/groups", "Groups");
       await settle(page, 1_600);
       await beat(page, "groups", "Groups — the crews you are in");
     },
@@ -245,7 +285,7 @@ const SCENES: Scene[] = [
     name: "channel",
     /** The bot channel: a feed, not a chat. Seven commands and nothing else. */
     run: async (page) => {
-      await page.goto(`${BASE_URL}/pacts/pact_five_a_week`, { waitUntil: "domcontentloaded" });
+      await go(page, "/pacts/pact_five_a_week");
       await page.getByLabel("Run a command").waitFor({ timeout: 60_000 });
       await settle(page, 1_800);
       await beat(page, "channel", "Five a week — the channel, Friday morning");
@@ -271,7 +311,7 @@ const SCENES: Scene[] = [
      * and be let through. PRODUCT.md: finding out immediately is the point.
      */
     run: async (page) => {
-      await page.goto(`${BASE_URL}/pacts/pact_five_a_week`, { waitUntil: "domcontentloaded" });
+      await go(page, "/pacts/pact_five_a_week");
       await page.getByLabel("Run a command").waitFor({ timeout: 60_000 });
       await settle(page, 1_200);
 
@@ -306,7 +346,7 @@ const SCENES: Scene[] = [
     name: "exemption",
     /** Dave's flight was cancelled twice. Nat has already said yes. */
     run: async (page) => {
-      await page.goto(`${BASE_URL}/pacts/pact_five_a_week`, { waitUntil: "domcontentloaded" });
+      await go(page, "/pacts/pact_five_a_week");
       await page.getByLabel("Run a command").waitFor({ timeout: 60_000 });
       await settle(page, 1_400);
 
@@ -327,7 +367,7 @@ const SCENES: Scene[] = [
   {
     name: "settings",
     run: async (page) => {
-      await page.goto(`${BASE_URL}/settings`, { waitUntil: "domcontentloaded" });
+      await go(page, "/settings");
       await settle(page, 1_600);
       await beat(page, "settings", "Settings — name, photo, linked accounts");
     },
@@ -349,26 +389,56 @@ async function runCommand(page: Page, command: string): Promise<void> {
  * ------------------------------------------------------------------------ */
 
 /**
- * Spawn `next dev` and wait for it to say it is listening.
+ * Spawn a server and wait for it to say it is listening.
+ *
+ * `--prod` builds first and serves that, and it is the flag that decides
+ * whether the animations survive the take.
+ *
+ * `next dev` compiles each route the moment it is first asked for, runs React
+ * in development -- slower renders, and StrictMode invoking effects twice --
+ * and mounts the dev overlay alongside. None of that is visible in a still. It
+ * is very visible in a video: the Arrival fade, the limelight sliding under the
+ * nav and the channel's bot lines all land on whichever frames the main thread
+ * had time for, so the take arrives judder-y in a way no amount of re-encoding
+ * can take out. The frames were never captured evenly.
+ *
+ * The build costs about a minute. It is the difference between filming the
+ * product and filming a development server.
  *
  * The port is read back out of its own output rather than assumed: Next takes
  * the next free one when the requested port is busy, and capturing against
  * whatever was already on 3000 is how you end up filming someone else's app.
  */
 async function startServer(): Promise<ChildProcess> {
-  console.log(`\n  starting next dev on :${SERVE_PORT} …`);
+  if (PROD) {
+    console.log(`\n  building …`);
+    const built = spawnSync("npx", ["next", "build"], {
+      shell: true,
+      stdio: "ignore",
+      env: { ...process.env, NODE_ENV: "production" },
+    });
+    if (built.status !== 0) {
+      throw new Error("next build failed; run `npm run build` to see why");
+    }
+  }
 
-  const child = spawn("npx", ["next", "dev", "--port", SERVE_PORT], {
+  const mode = PROD ? "start" : "dev";
+  console.log(`\n  starting next ${mode} on :${SERVE_PORT} …`);
+
+  const child = spawn("npx", ["next", mode, "--port", SERVE_PORT], {
     shell: true,
     stdio: ["ignore", "pipe", "pipe"],
     // The whole point is the zero-environment path; a stray .env would change
     // what the capture is of. Next still reads .env files itself, so this only
     // guarantees the shell adds nothing.
-    env: { ...process.env, NODE_ENV: "development" },
+    env: { ...process.env, NODE_ENV: PROD ? "production" : "development" },
   });
 
   const ready = new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("next dev did not start in 120s")), 120_000);
+    const timer = setTimeout(
+      () => reject(new Error(`next ${mode} did not start in 120s`)),
+      120_000,
+    );
     let seen = "";
 
     const read = (chunk: Buffer) => {
@@ -384,7 +454,7 @@ async function startServer(): Promise<ChildProcess> {
     child.stderr?.on("data", read);
     child.on("exit", (code) => {
       clearTimeout(timer);
-      reject(new Error(`next dev exited with ${code}\n${seen.trim()}`));
+      reject(new Error(`next ${mode} exited with ${code}\n${seen.trim()}`));
     });
   });
 
