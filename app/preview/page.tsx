@@ -22,6 +22,7 @@ const ROUTES = [
   { href: "/", label: "Front door" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/groups", label: "Groups" },
+  { href: "/communities", label: "Communities" },
   { href: "/settings", label: "Settings" },
 ];
 

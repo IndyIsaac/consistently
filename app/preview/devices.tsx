@@ -1,17 +1,22 @@
 /* ---------------------------------------------------------------------------
  * DEV SURFACE — not part of the product. Delete app/preview/ and it is gone.
  *
- * Two frames drawn to real proportions, so what the builder judges inside them
+ * Three frames drawn to real proportions, so what the builder judges inside them
  * is the true shape of the app on a phone rather than a browser window squeezed
  * narrow. Every number below is derived from the physical device; the comments
  * say from what.
+ *
+ * The third is a desktop window, which is the opposite errand: the product is
+ * phone-first and only the dashboard reflows above `lg`, so the width nobody was
+ * looking at is the one most likely to be wrong. It is here to be judged, not
+ * because it is the primary case.
  *
  * The colours here are local literals on purpose. A phone is an object in the
  * room, not a surface of the product, so it does not take the product's palette
  * and does not flip with the theme — only the screen inside it does.
  * ------------------------------------------------------------------------- */
 
-export type DeviceId = "s25-ultra" | "iphone-16-pro";
+export type DeviceId = "s25-ultra" | "iphone-16-pro" | "desktop";
 
 export type Device = {
   id: DeviceId;
@@ -182,4 +187,93 @@ export const iPhone16Pro: Device = {
   },
 };
 
-export const DEVICES: Device[] = [galaxyS25Ultra, iPhone16Pro];
+/* ---------------------------------------------------------------------------
+ * Desktop
+ *
+ * 1440 × 900 CSS pixels — a 15" laptop's viewport once the browser's own chrome
+ * is off the top. That width is the one worth judging because it is the first
+ * past Tailwind's `lg` (1024px), which is where app/(app)/dashboard/page.tsx
+ * stops stacking its pact cards and lays them two across. Narrower than that and
+ * the desktop layout is only the phone layout with more air around it.
+ *
+ * Every page is capped at `max-w-[54rem]` (864px) and centred, so what this
+ * frame shows at 1440 is a column with roughly 290px of bare ground either side.
+ * That is the honest picture, and seeing it is the point.
+ *
+ * A window, not a laptop body. A lid, a hinge and a keyboard would be three
+ * things the app is not in, and the thing being judged is the viewport — so the
+ * chrome stops at the title bar.
+ *
+ * The three dots are grey rather than the usual red/amber/green. This is a dev
+ * surface and the frame is not a product surface, but DESIGN.md spends the
+ * product's only red and only green on money lost and money gained, and putting
+ * a red dot an inch from a forfeit figure is not worth the realism.
+ * ------------------------------------------------------------------------- */
+
+const DESKTOP_SCREEN = { width: 1440, height: 900 };
+const DESKTOP_BEZEL = 3;
+/** The title bar. Tall enough to read as chrome, short enough not to be the subject. */
+const DESKTOP_CHROME = 36;
+
+export const desktop: Device = {
+  id: "desktop",
+  name: "Desktop",
+  screen: DESKTOP_SCREEN,
+  frame: {
+    width: DESKTOP_SCREEN.width + DESKTOP_BEZEL * 2,
+    height: DESKTOP_SCREEN.height + DESKTOP_CHROME + DESKTOP_BEZEL * 2,
+  },
+  Frame: function DesktopFrame({ children }) {
+    return (
+      <div
+        className="relative"
+        style={{
+          width: DESKTOP_SCREEN.width + DESKTOP_BEZEL * 2,
+          height: DESKTOP_SCREEN.height + DESKTOP_CHROME + DESKTOP_BEZEL * 2,
+        }}
+      >
+        {/* the body, in the same metal as the phone rails so the three frames
+            read as one set of objects on one bench */}
+        <div
+          className="absolute inset-0 rounded-[14px] shadow-[0_40px_80px_-34px_rgba(0,0,0,0.55)]"
+          style={{
+            backgroundImage: "linear-gradient(158deg, #45454a, #242427 55%, #38383d)",
+          }}
+        />
+
+        {/* the title bar */}
+        <div
+          className="absolute flex items-center gap-2 px-3.5"
+          style={{
+            top: DESKTOP_BEZEL,
+            left: DESKTOP_BEZEL,
+            width: DESKTOP_SCREEN.width,
+            height: DESKTOP_CHROME,
+          }}
+        >
+          {[0, 1, 2].map((dot) => (
+            <span
+              key={dot}
+              aria-hidden="true"
+              className="size-3 rounded-full bg-[#4d4d52]"
+            />
+          ))}
+        </div>
+
+        <div
+          className="absolute overflow-hidden rounded-b-[11px] bg-ground"
+          style={{
+            top: DESKTOP_BEZEL + DESKTOP_CHROME,
+            left: DESKTOP_BEZEL,
+            width: DESKTOP_SCREEN.width,
+            height: DESKTOP_SCREEN.height,
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    );
+  },
+};
+
+export const DEVICES: Device[] = [galaxyS25Ultra, iPhone16Pro, desktop];
