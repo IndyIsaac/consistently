@@ -35,6 +35,28 @@ const TIMEZONE = "Asia/Bangkok";
 
 const GYM = "Five a week";
 const CFA = "CFA Level II";
+const RUN = "Sunday long run";
+
+function flag(name: string, fallback: string): string {
+  const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
+  return hit ? hit.slice(name.length + 3) : fallback;
+}
+
+/**
+ * What the viewer is called on camera.
+ *
+ * The seat already goes to a real signed-in account and keeps its wallet. What
+ * it did not do was name it -- so a demo recorded against a live database
+ * showed whatever that account happened to be called, which for an account made
+ * by pasting an email at 2am is rarely the name you want on a submission.
+ *
+ * `--name=` and `--handle=` write over the real row's presentation only:
+ * display name, bio, and the `x` social. Nothing about the wallet, the
+ * memberships or the money moves. `--handle=` off leaves socials alone.
+ */
+const VIEWER_NAME = flag("name", "Indy");
+const VIEWER_HANDLE = flag("handle", "isaacbuild").replace(/^@/, "");
+const VIEWER_BIO = flag("bio", "Five a week, most weeks.");
 
 const GYM_RULE: RuleConfig = {
   cadence: 5,
@@ -106,8 +128,12 @@ const GYM_CREW: Seat[] = [
     ],
   },
   {
+    // Four rather than three, which is what puts six settled weeks behind this
+    // crew -- roughly six weeks of history, on the crew the demo opens on.
+    // It lands on Dave because he is already the one who keeps missing; adding
+    // it to the viewer would cost them the "one miss, ever" the demo is for.
     name: "Dave Whitfield",
-    forfeits: 3,
+    forfeits: 4,
     sittings: [{ day: 0, at: "19:05", mins: 38 }],
   },
 ];
@@ -135,9 +161,72 @@ const CFA_CREW: Seat[] = [
   },
 ];
 
+/**
+ * A third crew, so the dashboard reads as somebody who lives here rather than
+ * somebody who made two groups to test with.
+ *
+ * Three a week rather than five, and no minimum duration -- a different shape
+ * of rule on the same screen is worth more than a third copy of the gym. The
+ * viewer has never forfeited here, which is what keeps their total across all
+ * three crews at exactly one.
+ */
+const RUN_RULE: RuleConfig = {
+  cadence: 3,
+  period: "week",
+  sessionType: "checkin",
+  minDurationMins: null,
+  // Wide rather than absent: RuleConfig wants a window, and a run club that
+  // will take anything from before dawn to after dark is the honest shape of
+  // one. `sessionType: "checkin"` is what actually makes this the loose rule --
+  // no check-out, so no duration to satisfy.
+  windowStart: "04:00",
+  windowEnd: "23:00",
+  proof: "photo",
+  failsWhenMissedExceeds: 0,
+  split: "equal",
+  exemption: "majority",
+  durationPeriods: 12,
+};
+
+const RUN_CREW: Seat[] = [
+  {
+    name: "Indy",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "06:40", mins: 42 },
+      { day: 2, at: "06:35", mins: 51 },
+    ],
+  },
+  {
+    name: "Bas Ratchada",
+    forfeits: 2,
+    sittings: [{ day: 1, at: "17:50", mins: 38 }],
+  },
+  {
+    name: "Ploy Anong",
+    forfeits: 1,
+    sittings: [
+      { day: 0, at: "06:45", mins: 44 },
+      { day: 2, at: "06:38", mins: 47 },
+      { day: 3, at: "18:10", mins: 40 },
+    ],
+  },
+];
+
 function at(dayKey: string, hhmm: string): Date {
   return new Date(`${dayKey}T${hhmm}:00.000+07:00`);
 }
+
+/**
+ * How many weeks this crew has already settled.
+ *
+ * The settlement history below writes one settled week per forfeit, oldest
+ * first, so the count of forfeits *is* the age of the pact. It used to start
+ * every pact a hardcoded five weeks back, which quietly disagreed with its own
+ * history the moment a forfeit was added or removed -- a pact five weeks old
+ * showing six settled weeks behind it.
+ */
+const settledWeeks = (crew: Seat[]) => crew.reduce((n, seat) => n + seat.forfeits, 0);
 
 /** The Monday n weeks before the given one. */
 function weeksBefore(mondayKey: string, n: number): string {
@@ -164,7 +253,26 @@ async function seedCrew(params: {
       users.push(
         await prisma.user.update({
           where: { id: real[i].id },
-          data: { walletFundedAt: real[i].walletFundedAt ?? new Date() },
+          data: {
+            walletFundedAt: real[i].walletFundedAt ?? new Date(),
+            // Seat 0 is the one on camera, so it gets the name and handle. The
+            // others are real accounts too and are left exactly as they are --
+            // renaming somebody else's account to dress a demo is not on.
+            ...(i === 0
+              ? {
+                  displayName: VIEWER_NAME,
+                  bio: VIEWER_BIO,
+                  ...(VIEWER_HANDLE
+                    ? {
+                        socials: {
+                          ...((real[i].socials as Record<string, string> | null) ?? {}),
+                          x: VIEWER_HANDLE,
+                        },
+                      }
+                    : {}),
+                }
+              : {}),
+          },
         }),
       );
       continue;
@@ -202,7 +310,7 @@ async function seedCrew(params: {
       vaultAddress: vault.publicKey,
       vaultSecretEnc: vault.secretEnc,
       status: "active",
-      startsAt: at(weeksBefore(week[0], 5), "00:00"),
+      startsAt: at(weeksBefore(week[0], settledWeeks(crew)), "00:00"),
     },
   });
 
@@ -279,7 +387,9 @@ async function main() {
 
   // Both crews, and anything an older version of this script left behind.
   const stale = await prisma.pact.findMany({
-    where: { OR: [{ name: GYM }, { name: CFA }, { name: { contains: "seed-demo" } }] },
+    where: {
+      OR: [{ name: GYM }, { name: CFA }, { name: RUN }, { name: { contains: "seed-demo" } }],
+    },
   });
   for (const p of stale) await prisma.pact.delete({ where: { id: p.id } });
 
@@ -296,6 +406,9 @@ async function main() {
   await seedCrew({
     name: CFA, rule: CFA_RULE, crew: CFA_CREW, real, week, todayIndex, usdRate,
   });
+  await seedCrew({
+    name: RUN, rule: RUN_RULE, crew: RUN_CREW, real, week, todayIndex, usdRate,
+  });
 
   // --- read it back through the real path ---------------------------------
   const viewer = gym.users[0];
@@ -303,9 +416,15 @@ async function main() {
   const view = await livePact(gym.pact.id, viewer, now);
 
   console.log("");
-  console.log(`  Seeded "${GYM}" and "${CFA}" — the mock, in Postgres.`);
+  console.log(`  Seeded "${GYM}", "${CFA}" and "${RUN}".`);
   if (real.length > 0) {
-    console.log(`  Viewer is a real account: ${real[0].displayName}`);
+    console.log(`  Viewer is a real account, now shown as: ${VIEWER_NAME}`);
+    if (VIEWER_HANDLE) console.log(`  Handle            @${VIEWER_HANDLE}`);
+    console.log(`  Weeks settled     ${settledWeeks(GYM_CREW)} on "${GYM}"`);
+    const misses = [GYM_CREW, CFA_CREW, RUN_CREW]
+      .map((c) => c.find((seat) => seat.name === "Indy")?.forfeits ?? 0)
+      .reduce((x, y) => x + y, 0);
+    console.log(`  Your misses       ${misses} across all three crews`);
   }
   console.log("");
   console.log(`  pacts             ${session.pacts.length}`);
