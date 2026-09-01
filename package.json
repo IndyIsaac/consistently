@@ -13,7 +13,8 @@
     "new-wallet": "tsx scripts/new-wallet.ts",
     "rehearse": "tsx scripts/rehearse.ts",
     "seed": "tsx scripts/seed-demo.ts",
-    "reset": "tsx scripts/reset-demo.ts"
+    "reset": "tsx scripts/reset-demo.ts",
+    "capture": "tsx scripts/capture-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -48,6 +49,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
+    "playwright": "^1.62.1",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
