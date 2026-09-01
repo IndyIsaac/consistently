@@ -127,7 +127,12 @@ async function callOrder(params: CallParams): Promise<OrderResponse> {
 
   const text = await res.text();
 
-  let body: any;
+  /**
+   * `unknown`, not `any`. It is somebody else's JSON, so nothing here should be
+   * able to reach into it unchecked -- the two reads below narrow it first, and
+   * the cast to OrderResponse at the end is the single deliberate assertion.
+   */
+  let body: unknown;
   try {
     body = JSON.parse(text);
   } catch {
@@ -137,7 +142,12 @@ async function callOrder(params: CallParams): Promise<OrderResponse> {
   }
 
   if (!res.ok) {
-    throw new DFlowError(body?.code ?? "unknown", body?.msg ?? "request failed", res.status);
+    const fault = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    throw new DFlowError(
+      typeof fault.code === "string" ? fault.code : "unknown",
+      typeof fault.msg === "string" ? fault.msg : "request failed",
+      res.status,
+    );
   }
   return body as OrderResponse;
 }
