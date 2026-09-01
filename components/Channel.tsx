@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getAccessToken } from "@privy-io/react-auth";
+import { isTimeout } from "@/lib/utils";
 import { ArrowLeft, QrCode } from "lucide-react";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import { CheckInCamera } from "@/components/CheckInCamera";
@@ -45,7 +46,7 @@ import {
 // branch is in lib/channel-client.ts and nothing here knows which it got.
 //
 //   getPact          -> GET  /api/pacts/[id]/view
-//   getChannel       -> GET  /api/pacts/[id]/feed?viewer=<wallet>
+//   getChannel       -> GET  /api/pacts/[id]/feed
 //   openSession      -> POST /api/pacts/[id]/sessions     { action: "open" }
 //   closeSession     -> POST /api/pacts/[id]/sessions     { action: "close" }
 //   toggleReaction   -> POST /api/feed/[itemId]/react
@@ -531,8 +532,23 @@ export function Channel({
         }),
       );
       await refresh();
-    } catch {
-      say(settleFailedLine("Could not reach the settlement."));
+    } catch (e) {
+      /**
+       * A timeout is not a failed settlement, and must not be reported as one.
+       *
+       * By this point payouts may already be broadcast -- which is the whole
+       * reason the route answers 202 and the branch above refuses to call that
+       * a clean week. "Could not reach the settlement" invites running it
+       * again, and StakeSheet argues the same thing about the stake it sends.
+       */
+      console.error("settle failed:", e);
+      say(
+        settleFailedLine(
+          isTimeout(e)
+            ? "We lost the connection before this finished. Check the pact before running it again."
+            : "Could not reach the settlement.",
+        ),
+      );
     }
     scrollToFoot();
   }

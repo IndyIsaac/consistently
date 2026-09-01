@@ -3,6 +3,7 @@
 import { getAccessToken } from "@privy-io/react-auth";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
 import type { PactView } from "@/lib/view";
+import { isTimeout } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
  * The channel's transport.
@@ -115,7 +116,7 @@ async function send(path: string, body: unknown): Promise<Record<string, unknown
   } catch (e) {
     // A phone at the back of a gym. Worth a sentence, not a stack trace.
     throw new ChannelError(
-      e instanceof DOMException && e.name === "TimeoutError"
+      isTimeout(e)
         ? "That is taking too long. Try again in a moment."
         : "No connection. Try that again.",
     );

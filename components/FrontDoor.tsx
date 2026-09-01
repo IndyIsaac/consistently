@@ -122,15 +122,6 @@ function serverCanSeeSession() {
 }
 
 /**
- * Resolves true once the cookie is there, false if it never turned up.
- *
- * `getAccessToken()` comes first because it mints or refreshes the token and
- * Privy writes the cookie in the same breath. It is not the proof, though --
- * the cookie is -- so the verdict comes from the poll either way, and the
- * token call is raced against the deadline so a hung refresh cannot hold the
- * door shut.
- */
-/**
  * Ask the server to set the cookie, because this browser did not.
  *
  * Privy writes `privy-token` from JavaScript with the token's own `exp` as an
@@ -173,6 +164,19 @@ async function askServerForCookie(getAccessToken: () => Promise<string | null>) 
   }
 }
 
+/**
+ * Resolves true once the cookie is there, false if it never turned up.
+ *
+ * The cookie is the proof, not the token, because the cookie is the one fact
+ * proxy.ts checks -- so this reads it first and returns immediately when it is
+ * already set, which is the ordinary sign-in and used to cost a token round
+ * trip before anyone looked.
+ *
+ * Only when it is missing does the rest run: `getAccessToken()` to mint or
+ * refresh, raced against a deadline so a hung refresh cannot hold the door
+ * shut, then a poll, and finally app/api/session as the fallback for the
+ * browser that will not keep what Privy writes.
+ */
 async function sessionVisible(getAccessToken: () => Promise<string | null>) {
   /**
    * The commonest case, and it used to pay for the rarest one.
@@ -605,7 +609,7 @@ function Door({
     return () => {
       live = false;
     };
-  }, [alreadyIn, router, serverSees]);
+  }, [alreadyIn, serverSees]);
 
   const enter = useCallback(
     async (code: string) => {

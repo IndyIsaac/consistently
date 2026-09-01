@@ -94,9 +94,9 @@ export function Onboarding({ invite }: { invite: InvitePreview }) {
   const hasWallet =
     user?.linkedAccounts.some((a) => a.type === "wallet" && a.chainType === "solana") ?? false;
 
-  /** Every call carries the bearer as well as the cookie -- see lib/auth.ts. */
   /**
-   * Every request this screen makes, with an upper bound.
+   * Every request this screen makes: the bearer as well as the cookie -- see
+   * lib/auth.ts -- and an upper bound on the wait.
    *
    * The balance poll below catches a rejection and schedules the next look
    * after the await, so a request that *hangs* does not slow the loop down --

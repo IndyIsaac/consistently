@@ -135,18 +135,6 @@ function firstNameOf(displayName: string): string {
 }
 
 /**
- * Whether the crew is still waiting on somebody's money, and how far off it is.
- *
- * Null once the pact is running, because then there is nothing to wait for and
- * the standing block below says everything worth saying. While it is funding
- * this is the most important fact on the screen and the channel did not carry
- * it: a pact waiting on half its crew rendered exactly like one that had
- * started, week grid and check-in and all.
- *
- * Somebody who left is not counted on either side. They owe nothing and their
- * absence should not hold the rest of the crew.
- */
-/**
  * How many members have actually put money in the vault.
  *
  * `/stake` used to answer this with the size of the crew, which counts everyone
@@ -168,6 +156,27 @@ function firstNameOf(displayName: string): string {
 export function paidCount(crew: { status: string }[]): number {
   const paid: ReadonlySet<string> = ELIGIBLE_STATUS_SET;
   return crew.filter((m) => paid.has(m.status)).length;
+}
+
+/**
+ * Whether the crew is still waiting on somebody's money, and how far off it is.
+ *
+ * Null once the pact is running, because then there is nothing to wait for and
+ * the standing block below says everything worth saying. While it is funding
+ * this is the most important fact on the screen and the channel did not carry
+ * it: a pact waiting on half its crew rendered exactly like one that had
+ * started, week grid and check-in and all.
+ *
+ * Somebody who left is not counted on either side. They owe nothing and their
+ * absence should not hold the rest of the crew.
+ */
+/**
+ * The same sentence in both listings: the dashboard card and the groups row.
+ * They were writing it out separately, which is how two screens end up
+ * describing the same state in two ways.
+ */
+export function fundingLine(f: { staked: number; of: number }): string {
+  return `${f.staked} of ${f.of} staked`;
 }
 
 export function fundingStanding(

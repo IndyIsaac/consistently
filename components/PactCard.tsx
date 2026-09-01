@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { DayMarkers } from "@/components/DayMarkers";
 import { formatMoney } from "@/lib/money";
-import { fundingStanding } from "@/lib/channel-view";
+import { fundingLine, fundingStanding } from "@/lib/channel-view";
 import { isTodayDone, ordinal, standingLine, weekDayMarks } from "@/lib/pact-view";
 import type { RuleConfig, SessionRecord } from "@/lib/rules";
 import type { LeaderRow } from "@/lib/stats";
@@ -98,7 +98,7 @@ export function PactCard({ pact, now }: { pact: PactCardPact; now: Date }) {
             What the crew is waiting for is the only standing there is. */}
         <span className="shrink-0 text-[13px] text-grey-on-ground">
           {funding
-            ? `${funding.staked} of ${funding.of} staked`
+            ? fundingLine(funding)
             : `${ordinal(rank + 1)} of ${pact.crew.length}`}
         </span>
       </div>

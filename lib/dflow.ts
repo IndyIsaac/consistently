@@ -1,3 +1,5 @@
+import { isTimeout } from "@/lib/utils";
+
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
@@ -118,7 +120,7 @@ async function callOrder(params: CallParams): Promise<OrderResponse> {
   } catch (e) {
     throw new DFlowError(
       "unreachable",
-      e instanceof Error && e.name === "TimeoutError"
+      isTimeout(e)
         ? "The router did not answer in time. Try again."
         : "Could not reach the router.",
       504,

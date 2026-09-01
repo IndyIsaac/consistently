@@ -1,8 +1,4 @@
-import {
-  PublicKey,
-  VersionedTransaction,
-  type TokenBalance,
-} from "@solana/web3.js";
+import { PublicKey, VersionedTransaction, type TokenBalance } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   createTransferCheckedInstruction,
@@ -11,13 +7,7 @@ import {
 } from "@solana/spl-token";
 import { TransactionMessage } from "@solana/web3.js";
 import { prisma } from "@/lib/db";
-import {
-  buildOrder,
-  getQuote,
-  isSupportedPayoutMint,
-  USDC_MINT,
-  WSOL_MINT,
-} from "@/lib/dflow";
+import { buildOrder, getQuote, isSupportedPayoutMint, USDC_MINT, WSOL_MINT } from "@/lib/dflow";
 import { fromUsdcAtomic } from "@/lib/fx";
 import { formatMoney } from "@/lib/money";
 import {
@@ -108,10 +98,7 @@ const SOL_BUFFER_LAMPORTS = 5_000_000n;
 const HEADROOM_FLOOR = 0.03;
 
 /** Thin pairs read short in both directions, so cover the impact twice over. */
-export function headroomFor(
-  priceImpactPct: number,
-  slippageBps: number,
-): number {
+export function headroomFor(priceImpactPct: number, slippageBps: number): number {
   const impact = Math.max(0, priceImpactPct) / 100;
   return Math.max(HEADROOM_FLOOR, 2 * impact + slippageBps / 10_000);
 }
@@ -123,10 +110,7 @@ export function sizeInputLeg(probeOut: bigint, headroom: number): bigint {
   return (probeOut * factor + scale - 1n) / scale;
 }
 
-export function computeStakeInput(params: {
-  inputMint: string;
-  stakeUsdc: bigint;
-}): {
+export function computeStakeInput(params: { inputMint: string; stakeUsdc: bigint }): {
   kind: "transfer" | "swap";
   amount: bigint;
 } {
@@ -166,11 +150,7 @@ export class StakeGuardError extends Error {
  */
 export function assertIsOurStakeTx(
   tx: VersionedTransaction,
-  expected: {
-    sponsor: PublicKey;
-    vault: PublicKey;
-    kind?: "swap" | "transfer";
-  },
+  expected: { sponsor: PublicKey; vault: PublicKey; kind?: "swap" | "transfer" },
 ): void {
   const keys = tx.message.staticAccountKeys;
 
@@ -178,18 +158,13 @@ export function assertIsOurStakeTx(
     throw new StakeGuardError("That transaction is not a stake.");
   }
   if (!keys[0]?.equals(expected.sponsor)) {
-    throw new StakeGuardError(
-      "That transaction does not pay its fee the way ours do.",
-    );
+    throw new StakeGuardError("That transaction does not pay its fee the way ours do.");
   }
   if (!keys.some((k) => k.equals(expected.vault))) {
-    throw new StakeGuardError(
-      "That transaction does not reach this pact's vault.",
-    );
+    throw new StakeGuardError("That transaction does not reach this pact's vault.");
   }
 
-  const allowed =
-    expected.kind === "transfer" ? TRANSFER_PROGRAMS : SWAP_PROGRAMS;
+  const allowed = expected.kind === "transfer" ? TRANSFER_PROGRAMS : SWAP_PROGRAMS;
   for (const ix of tx.message.compiledInstructions) {
     const programId = keys[ix.programIdIndex]?.toBase58();
     if (!programId || !allowed.has(programId)) {
@@ -206,20 +181,14 @@ export function assertIsOurStakeTx(
         "stake guard refused:",
         JSON.stringify({
           kind: expected.kind ?? "swap",
-          offending:
-            programId ??
-            `<index ${ix.programIdIndex} beyond ${keys.length} static keys>`,
+          offending: programId ?? `<index ${ix.programIdIndex} beyond ${keys.length} static keys>`,
           allowed: [...allowed],
           programs: tx.message.compiledInstructions.map(
-            (i) =>
-              keys[i.programIdIndex]?.toBase58() ??
-              `<index ${i.programIdIndex}>`,
+            (i) => keys[i.programIdIndex]?.toBase58() ?? `<index ${i.programIdIndex}>`,
           ),
         }),
       );
-      throw new StakeGuardError(
-        "That transaction calls something we do not route through.",
-      );
+      throw new StakeGuardError("That transaction calls something we do not route through.");
     }
   }
 }
@@ -228,12 +197,7 @@ export type BuiltStake = {
   transactionB64: string;
   lastValidBlockHeight: number;
   kind: "swap" | "transfer";
-  quote: {
-    inAmount: string;
-    outAmount: string;
-    minOutAmount: string;
-    venues: string[];
-  };
+  quote: { inAmount: string; outAmount: string; minOutAmount: string; venues: string[] };
 };
 
 /**
@@ -269,8 +233,7 @@ async function buildSwapStake(params: {
 
   // One retry widens the headroom rather than repeating the same arithmetic:
   // the price moved between the two quotes, which is the usual reason.
-  const headroom =
-    headroomFor(impact, SLIPPAGE_BPS) + (params.attempt > 0 ? 0.02 : 0);
+  const headroom = headroomFor(impact, SLIPPAGE_BPS) + (params.attempt > 0 ? 0.02 : 0);
   const inputAmount = sizeInputLeg(BigInt(probe.outAmount), headroom);
 
   const afford = await affordability({
@@ -299,9 +262,7 @@ async function buildSwapStake(params: {
     if (params.attempt === 0) {
       return buildSwapStake({ ...params, attempt: 1 });
     }
-    throw new StakeGuardError(
-      "The price moved while we were pricing it. Try again.",
-    );
+    throw new StakeGuardError("The price moved while we were pricing it. Try again.");
   }
 
   return {
@@ -346,28 +307,15 @@ async function buildUsdcStake(params: {
   const fromAta = getAssociatedTokenAddressSync(mint, from);
   const toAta = getAssociatedTokenAddressSync(mint, to);
 
-  const { blockhash, lastValidBlockHeight } =
-    await getConnection().getLatestBlockhash("confirmed");
+  const { blockhash, lastValidBlockHeight } = await getConnection().getLatestBlockhash("confirmed");
 
   const message = new TransactionMessage({
     payerKey: sponsor.publicKey,
     recentBlockhash: blockhash,
     instructions: [
       // Idempotent: a vault that has already taken a stake has this account.
-      createAssociatedTokenAccountIdempotentInstruction(
-        sponsor.publicKey,
-        toAta,
-        to,
-        mint,
-      ),
-      createTransferCheckedInstruction(
-        fromAta,
-        mint,
-        toAta,
-        from,
-        params.stakeUsdc,
-        6,
-      ),
+      createAssociatedTokenAccountIdempotentInstruction(sponsor.publicKey, toAta, to, mint),
+      createTransferCheckedInstruction(fromAta, mint, toAta, from, params.stakeUsdc, 6),
     ],
   }).compileToV0Message();
 
@@ -395,16 +343,10 @@ export async function previewStake(params: {
   pactId: string;
   inputMint: string;
 }): Promise<{ kind: "swap" | "transfer"; inAmount: string; venues: string[] }> {
-  const pact = await prisma.pact.findUniqueOrThrow({
-    where: { id: params.pactId },
-  });
+  const pact = await prisma.pact.findUniqueOrThrow({ where: { id: params.pactId } });
 
   if (params.inputMint === USDC_MINT) {
-    return {
-      kind: "transfer",
-      inAmount: pact.stakeUsdc.toString(),
-      venues: [],
-    };
+    return { kind: "transfer", inAmount: pact.stakeUsdc.toString(), venues: [] };
   }
 
   const probe = await getQuote({
@@ -436,9 +378,7 @@ export async function buildStakeTransaction(params: {
   userWallet: string;
   inputMint: string;
 }): Promise<BuiltStake> {
-  const pact = await prisma.pact.findUniqueOrThrow({
-    where: { id: params.pactId },
-  });
+  const pact = await prisma.pact.findUniqueOrThrow({ where: { id: params.pactId } });
   const { kind } = computeStakeInput({
     inputMint: params.inputMint,
     stakeUsdc: pact.stakeUsdc,
@@ -480,17 +420,11 @@ export async function affordability(params: {
     const lamports = BigInt(await connection.getBalance(owner));
     // Leave a little native SOL behind rather than draining the account to
     // zero: the sponsor covers fees here, but not everywhere forever.
-    const spendable =
-      lamports > SOL_BUFFER_LAMPORTS ? lamports - SOL_BUFFER_LAMPORTS : 0n;
-    return spendable >= params.inputAmount
-      ? { ok: true }
-      : { ok: false, held: spendable };
+    const spendable = lamports > SOL_BUFFER_LAMPORTS ? lamports - SOL_BUFFER_LAMPORTS : 0n;
+    return spendable >= params.inputAmount ? { ok: true } : { ok: false, held: spendable };
   }
 
-  const ata = getAssociatedTokenAddressSync(
-    new PublicKey(params.inputMint),
-    owner,
-  );
+  const ata = getAssociatedTokenAddressSync(new PublicKey(params.inputMint), owner);
   try {
     const balance = await connection.getTokenAccountBalance(ata);
     const held = BigInt(balance.value.amount);
@@ -590,20 +524,13 @@ async function deliveredToVault(params: {
       // zero, and an honest staker is told their money did not arrive. We
       // cannot know which row we lost, so any lost row refuses the whole
       // answer: a guard that only fires when it can tell is not a guard.
-      if (
-        [...pre, ...post].some(
-          (row) => row.mint === USDC_MINT && row.owner == null,
-        )
-      ) {
+      if ([...pre, ...post].some((row) => row.mint === USDC_MINT && row.owner == null)) {
         return null;
       }
 
       const held = (balances: TokenBalance[]): bigint =>
         balances
-          .filter(
-            (row) =>
-              row.mint === USDC_MINT && row.owner === params.vaultAddress,
-          )
+          .filter((row) => row.mint === USDC_MINT && row.owner === params.vaultAddress)
           .reduce((sum, row) => sum + BigInt(row.uiTokenAmount.amount), 0n);
 
       try {
@@ -659,9 +586,7 @@ export async function finaliseStake(params: {
    *  client sends nothing and the column keeps its USDC default. */
   payoutMint?: string;
 }): Promise<{ signature: string; dryRun?: DryRun }> {
-  const pact = await prisma.pact.findUniqueOrThrow({
-    where: { id: params.pactId },
-  });
+  const pact = await prisma.pact.findUniqueOrThrow({ where: { id: params.pactId } });
 
   /**
    * Is this caller in the crew at all, and answered before anything moves.
@@ -690,10 +615,7 @@ export async function finaliseStake(params: {
    * most one row can match either way.
    */
   const membership = await prisma.membership.findFirst({
-    where: {
-      pactId: params.pactId,
-      user: { walletAddress: params.userWallet },
-    },
+    where: { pactId: params.pactId, user: { walletAddress: params.userWallet } },
     include: { user: true },
   });
   if (!membership) {
@@ -703,29 +625,25 @@ export async function finaliseStake(params: {
   /**
    * In the crew is not the same as owing money, and this only checked the first.
    *
-   * `reopen` below has always refused a member who is already staked. This did
-   * not, so the only thing standing between a member and paying twice was the
-   * `needsStake` prop on the pact page. StakeSheet re-enables its button before
-   * `router.refresh` lands; the 202 branch comes back to a live button too, and
-   * two tabs need no bug at all.
+   * `reopen` below has always refused a member who is already staked. This did not, so the
+   * only thing standing between a member and paying twice was the `needsStake` prop on the
+   * pact page. StakeSheet re-enables its button before `router.refresh` lands; the 202 branch
+   * comes back to a live button too, and two tabs need no bug at all.
    *
-   * A second stake is not recoverable by settling. Each winner is returned one
-   * `principal`, so the duplicate is not returned to anybody -- it lands in
-   * `balance`, `pot` takes everything above the winners' principal, and the
-   * money is split among the crew as though it had been forfeited. The member
-   * who paid twice funds everyone else's week.
+   * A second stake is not recoverable by settling. Each winner is returned one `principal`,
+   * so the duplicate is not returned to anybody -- it lands in `balance`, `pot` takes
+   * everything above the winners' principal, and the money is split among the crew as though
+   * it had been forfeited. The member who paid twice funds everyone else's week.
    *
-   * The pact's own state matters as much: staking into a pact that has started
-   * or settled puts USDC in a vault whose settlement has already been decided,
-   * and there is no operator path in this build to send it back.
+   * The pact's own state matters as much: staking into a pact that has started or settled
+   * puts USDC in a vault whose settlement has already been decided, and there is no operator
+   * path in this build to send it back.
    */
   if (membership.status === "left") {
     throw new StakeGuardError("You have left this crew. Nothing was sent.");
   }
   if (membership.status === "staked") {
-    throw new StakeGuardError(
-      "You are already staked for this period. Nothing was sent.",
-    );
+    throw new StakeGuardError("You are already staked for this period. Nothing was sent.");
   }
   if (pact.status !== "funding") {
     throw new StakeGuardError(
@@ -824,10 +742,7 @@ export async function finaliseStake(params: {
       console.error(
         `stake unattributed: signature=${signature} pact=${params.pactId} wallet=${params.userWallet}`,
       );
-      throw new SubmitError(
-        "Confirmed, but we could not read what it delivered.",
-        signature,
-      );
+      throw new SubmitError("Confirmed, but we could not read what it delivered.", signature);
     }
 
     if (delivered < pact.stakeUsdc) {
@@ -841,10 +756,7 @@ export async function finaliseStake(params: {
       // would mean this transaction took USDC *out* of the vault, and that
       // needs the vault's signature, which a stake never carries.
       const inCrewMoney = (atomic: bigint) =>
-        formatMoney(
-          fromUsdcAtomic(atomic, pact.fxRateToUsd.toNumber()),
-          pact.stakeCurrency,
-        );
+        formatMoney(fromUsdcAtomic(atomic, pact.fxRateToUsd.toNumber()), pact.stakeCurrency);
 
       throw new StakeGuardError(
         `That transaction put ${inCrewMoney(delivered)} into the vault and the stake is ` +
@@ -880,29 +792,21 @@ export async function finaliseStake(params: {
 
   // The pact starts only once everybody has staked. Nobody is exposed to a rule
   // the rest of the crew has not paid for yet.
+  //
+  // Reaching here at all means the pact was still funding: the guard above refuses any other
+  // status before the transaction is even co-signed. That is what keeps a repeat run from
+  // moving `startsAt` to now -- the field every period key derives from, and the weeks
+  // already lived with it.
   const members = await prisma.membership.findMany({
     where: { pactId: params.pactId, status: { not: "left" } },
   });
-  // `pact.status` was read before this stake was recorded, so it still says
-  // funding for the stake that completes the crew -- and says otherwise for a
-  // pact that is already running. Without that second test a repeat run would
-  // move `startsAt` to now, which is the field every period key is derived
-  // from: the weeks already lived would stop being settleable.
-  if (
-    pact.status === "funding" &&
-    members.length > 0 &&
-    members.every((m) => m.status === "staked")
-  ) {
+  if (members.length > 0 && members.every((m) => m.status === "staked")) {
     await prisma.pact.update({
       where: { id: params.pactId },
       data: { status: "active", startsAt: new Date() },
     });
     await prisma.feedItem.create({
-      data: {
-        pactId: params.pactId,
-        type: "bot",
-        body: "Everyone's staked. The pact is live.",
-      },
+      data: { pactId: params.pactId, type: "bot", body: "Everyone's staked. The pact is live." },
     });
   }
 
@@ -932,20 +836,14 @@ export async function reopenForNextPeriod(params: {
     where: { pactId_userId: { pactId: params.pactId, userId: user.id } },
   });
 
-  if (membership.status === "left")
-    throw new StakeGuardError("You have left this crew.");
+  if (membership.status === "left") throw new StakeGuardError("You have left this crew.");
   if (membership.status === "staked") {
     throw new StakeGuardError("You are already staked for this period.");
   }
 
   await prisma.membership.update({
     where: { id: membership.id },
-    data: {
-      status: "invited",
-      stakedAt: null,
-      stakeTxSig: null,
-      payoutTxSig: null,
-    },
+    data: { status: "invited", stakedAt: null, stakeTxSig: null, payoutTxSig: null },
   });
 
   await prisma.pact.update({

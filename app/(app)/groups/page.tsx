@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronRight, Plus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
 import { DashedRule, Panel } from "@/components/Panel";
-import { fundingStanding } from "@/lib/channel-view";
+import { fundingLine, fundingStanding } from "@/lib/channel-view";
 import { formatMoney } from "@/lib/money";
 import { getSession } from "@/lib/session";
 import type { PactView } from "@/lib/view";
@@ -74,7 +74,7 @@ function GroupRow({ pact }: { pact: PactView }) {
                       judged for. */}
                   <p className="mt-0.5 text-[13px] text-grey-on-ground">
                     {funding
-                      ? `${funding.staked} of ${funding.of} staked`
+                      ? fundingLine(funding)
                       : `this week · ${ordinal(rank + 1)} of ${pact.crew.length}`}
                   </p>
                 </>

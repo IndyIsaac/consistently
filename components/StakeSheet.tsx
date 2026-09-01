@@ -8,6 +8,7 @@ import { FlaskConical, TriangleAlert } from "lucide-react";
 import { FieldLabel } from "@/components/Panel";
 import { Select } from "@/components/Select";
 import { PAYOUT_MINTS } from "@/lib/dflow";
+import { isTimeout } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
  * Putting the money in, from the member's side.
@@ -159,7 +160,7 @@ export function StakeSheet({
       // at from the other direction -- a hung network rather than a refused one.
       console.error("stake quote failed:", e);
       setError(
-        e instanceof DOMException && e.name === "TimeoutError"
+        isTimeout(e)
           ? "That is taking too long. Check your connection and try again."
           : "Could not price that. Try again in a moment.",
       );
@@ -250,7 +251,7 @@ export function StakeSheet({
        */
       console.error("stake failed:", e);
       setError(
-        e instanceof DOMException && e.name === "TimeoutError"
+        isTimeout(e)
           ? "We lost the connection before this was confirmed. Check the pact before trying again."
           : "That did not go through.",
       );
