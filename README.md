@@ -43,6 +43,11 @@ builds the real order on the tap.
 A winner who takes USDC is paid by a plain SPL transfer, because DFlow cannot route a mint to
 itself. **The second DFlow moment only exists if a winner picked something other than the default.**
 
+The same is true on the way in. A member staking USDC gets a plain transfer and never touches
+DFlow, so if a USDC stake prices and a SOL stake says *"Could not price that route"*, the quote API
+is down, not the route. The stake route currently returns that same sentence for an upstream 5xx as
+for an unroutable pair, and logs nothing; distinguishing them is the first fix to make.
+
 ## Two holes we found in our own code
 
 Both were found by writing [the custody document](docs/security/escrow-protocol.md), not by testing.
@@ -221,18 +226,58 @@ The first two are the ones that matter for judging.
   second account lands on an empty dashboard, and the crews and staked money on the first are
   invisible from it. Use one method per person until the doors link instead of logging in.
 
-## Checks
+## Verify
 
-```bash
-npm test          # vitest
-npm run typecheck # tsc --noEmit
-npm run lint      # eslint
-npm run build     # the one that catches what tsc does not
-```
+Nothing is done until it has been run. In order of cost:
 
-The build is in that list because type declarations can lie about runtime exports:
-`@privy-io/react-auth` declares `PrivyErrorCode` and does not ship it, so typecheck passed and the
-production build did not.
+1. **Types, lint, tests, build.** Fast, no network.
+   ```bash
+   npx next typegen  # a fresh worktree needs this first: tsconfig includes .next/types
+   npm run typecheck
+   npm run lint
+   npm test
+   npm run build     # the one that catches what tsc does not
+   ```
+   The build is in that list because type declarations can lie about runtime exports:
+   `@privy-io/react-auth` declares `PrivyErrorCode` and does not ship it, so typecheck passed and
+   the production build did not.
+2. **Preflight.** Queries the database, asks the RPC for a slot, asks DFlow for a live quote, reads
+   the sponsor balance. Writes nothing, spends nothing. A key being present in `.env` is not
+   evidence that it works.
+   ```bash
+   npm run preflight
+   ```
+3. **Rehearsal.** The whole money path except the broadcast: the route is priced, the member signs,
+   the sponsor co-signs, the guard checks it, and the transaction is simulated against mainnet with
+   signature verification on. Costs nothing.
+   ```bash
+   STAKE_DRY_RUN=1 npm run dev   # in the browser
+   npm run rehearse              # from the terminal
+   ```
+4. **The real thing.** Unset `STAKE_DRY_RUN`, stake a small amount, watch the vault.
 
-A fresh worktree needs `npx next typegen` before `npm run typecheck` passes, because
-`tsconfig.json` includes `.next/types/**/*.ts` and `.next` is gitignored.
+A change to anything in `lib/stake.ts`, `lib/settlement.ts` or `lib/dflow.ts` is not verified below
+step 3. `lib/__tests__/dflow.test.ts` calls the live quote API, so it fails when DFlow is down; that
+is a fact about DFlow, not the branch.
+
+## Simplify
+
+Before a PR, read the diff once more for anything that can go without changing what it does. Names
+that explain themselves, comments that say why rather than what, one seam instead of two. Then run
+step 1 again.
+
+## Ship
+
+Branch from `main`, open a PR, and let the checks go green before asking for a review. A human makes
+every merge call.
+
+## Security
+
+Do not open a public issue for a vulnerability. Email the address on the maintainer's GitHub
+profile. The sponsor key and every vault key are the crown jewels: neither should ever appear in a
+log, a commit, or a screenshot. [The custody document](docs/security/escrow-protocol.md) says
+exactly who can take the money today.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

@@ -44,3 +44,7 @@ next-env.d.ts
 # SDD workspace (scratch)
 .superpowers/
 .env
+
+# local tooling output
+.playwright-mcp/
+/*.png
