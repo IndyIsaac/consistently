@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 /**
@@ -11,7 +11,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 export function AppHeader({
   user,
 }: {
-  user: { displayName: string; initials: string };
+  user: { displayName: string; initials: string; avatarUrl?: string | null };
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-ground/85 backdrop-blur-md">
@@ -32,6 +32,9 @@ export function AppHeader({
             className="rounded-full"
           >
             <Avatar className="size-9 transition-opacity hover:opacity-75">
+              {/* Initials are the fallback, not the only state: a member who
+                  set a photo saw it in the settings form and nowhere else. */}
+              {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt="" />}
               <AvatarFallback className="bg-surface text-[12px] font-semibold tracking-[0.02em] text-grey-on-surface">
                 {user.initials}
               </AvatarFallback>
