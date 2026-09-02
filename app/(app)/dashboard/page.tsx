@@ -62,6 +62,7 @@ function crewRows(pact: PactView, now: Date): CrewRowData[] {
       rank: i + 1,
       name: member.isViewer ? "You" : member.displayName,
       initials: member.initials,
+      avatarUrl: member.avatarUrl,
       // The forfeit is the sharper fact, so it wins the one grey line it gets.
       subline:
         member.forfeitedToDate > 0 ? (

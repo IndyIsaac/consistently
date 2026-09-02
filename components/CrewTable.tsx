@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
 export type CrewRowData = {
@@ -7,6 +7,7 @@ export type CrewRowData = {
   rank: number;
   name: string;
   initials: string;
+  avatarUrl?: string | null;
   /** One grey sub-line. One. */
   subline: React.ReactNode;
   /** Right-aligned figure. */
@@ -47,6 +48,7 @@ export function CrewTable({ rows, className }: { rows: CrewRowData[]; className?
             </span>
 
             <Avatar className="size-9">
+              {row.avatarUrl && <AvatarImage src={row.avatarUrl} alt="" />}
               <AvatarFallback
                 className={cn(
                   "text-[12px] font-semibold tracking-[0.02em]",
