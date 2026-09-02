@@ -7,9 +7,9 @@
 /* ---------------------------------------------------------------------------
    Consistently — the palette from DESIGN.md.
 
-   Red and green appear ONLY against money: red for what you lost, green for
-   what you gained. Nothing else in the interface is coloured — not status, not
-   streaks, not navigation.
+   Red and green mark money and cadence: owed for a loss or a miss, earned for
+   a gain or a make. `pace` is the one orange, and it never sits on a figure.
+   Navigation and type stay ink.
 
    Two grounds, and they are always opposite. The interior takes the theme; the
    front door takes its inverse, so crossing the threshold is a flip of value in
@@ -30,6 +30,8 @@
   --surface: #f5f5f5;
   --owed: #b42318;
   --earned: #067647;
+  /* Cadence: on track, but not yet made. Beside earned/owed on marks, not money. */
+  --pace: #c2410c;
 
   /* One secondary grey per ground. DESIGN's `muted` (#737373) clears 4.5:1 on
      white but not on `surface`, so that ground gets the nearest value that
@@ -89,6 +91,7 @@
      9.65:1 against the dark ground. */
   --owed: #f97066;
   --earned: #47cd89;
+  --pace: #fb923c;
 
   /* One value clears 4.5:1 on all three dark grounds, so there is only one. */
   --grey-on-ground: #8a8a8a;
@@ -160,6 +163,7 @@
   --color-surface: var(--surface);
   --color-owed: var(--owed);
   --color-earned: var(--earned);
+  --color-pace: var(--pace);
 
   --color-grey-on-ground: var(--grey-on-ground);
   --color-grey-on-surface: var(--grey-on-surface);

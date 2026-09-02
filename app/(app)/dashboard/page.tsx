@@ -1,12 +1,10 @@
 import { TriangleAlert } from "lucide-react";
-import { CrewTable, type CrewRowData } from "@/components/CrewTable";
 import Link from "next/link";
+import { CrewOverview } from "@/components/CrewOverview";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
-import { PactCard } from "@/components/PactCard";
 import { formatMoney } from "@/lib/money";
 import { getSession } from "@/lib/session";
-import type { PactView } from "@/lib/view";
-import { isTodayDone, spell, standingLine, weekDayMarks } from "@/lib/pact-view";
+import { spell } from "@/lib/pact-view";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Dashboard · Consistently" };
@@ -53,51 +51,6 @@ function FirstRun() {
   );
 }
 
-function crewRows(pact: PactView, now: Date): CrewRowData[] {
-  return pact.crew.map((member, i) => {
-    const marks = weekDayMarks(member.sessions, pact.ruleConfig, pact.timezone, now);
-
-    return {
-      id: member.memberId,
-      rank: i + 1,
-      name: member.isViewer ? "You" : member.displayName,
-      initials: member.initials,
-      avatarUrl: member.avatarUrl,
-      // The forfeit is the sharper fact, so it wins the one grey line it gets.
-      subline:
-        member.forfeitedToDate > 0 ? (
-          <>
-            Lost{" "}
-            <span className="font-semibold text-owed">
-              {formatMoney(member.forfeitedToDate, pact.stakeCurrency)}
-            </span>
-            . {spell(member.forfeitedPeriods)}{" "}
-            {member.forfeitedPeriods === 1 ? "week" : "weeks"}.
-          </>
-        ) : (
-          standingLine(member.daysDone, member.required, isTodayDone(marks))
-        ),
-      figure: (
-        <>
-          {member.daysDone}
-          {/* The viewer's row is inset in `surface`, which #737373 does not clear
-              4.5:1 against. Same role, the value that ground needs. */}
-          <span
-            className={cn(
-              "font-normal",
-              member.isViewer ? "text-grey-on-surface" : "text-grey-on-ground",
-            )}
-          >
-            {" "}
-            of {member.required}
-          </span>
-        </>
-      ),
-      isViewer: member.isViewer,
-    };
-  });
-}
-
 /**
  * The one thing this page is ever told by the route that sent somebody here.
  *
@@ -135,7 +88,7 @@ export default async function DashboardPage({
    *
    * Everything below assumes a crew: `Math.max()` over no pacts is -Infinity,
    * the money figures are zero in the two colours reserved for money that
-   * moved, and the "Everyone" panel introduces two crews and then lists none.
+   * moved, and the crew list is a table of nothing.
    * A ledger of nothing is a worse greeting than a sentence saying what this
    * is for.
    */
@@ -207,51 +160,7 @@ export default async function DashboardPage({
         Nobody was asked for any of it.
       </p>
 
-      <div className="mt-10 grid items-start gap-4 lg:grid-cols-2">
-        {pacts.map((pact, i) => (
-          /**
-           * An odd number of crews used to leave a hole.
-           *
-           * Two columns and one crew meant a card on the left and nothing at
-           * all on the right -- the emptiest thing on the page sitting beside
-           * the member's own week. Three crews put the same hole one row down.
-           *
-           * The last card of an odd set takes the full width instead, which
-           * lines it up with the "Everyone" panel below and reads as a
-           * deliberate row rather than a missing one. An even set is unchanged.
-           */
-          <div
-            key={pact.id}
-            className={pacts.length % 2 === 1 && i === pacts.length - 1 ? "lg:col-span-2" : undefined}
-          >
-            <PactCard pact={pact} now={now} />
-          </div>
-        ))}
-
-        <Panel className="lg:col-span-2">
-          <h2 className="text-[15px] font-bold tracking-[-0.015em] text-ink">Everyone</h2>
-          <p className="mt-1 text-[13px] text-grey-on-ground">
-            {/* "Both" is only true of two. */}
-            {pacts.length === 1
-              ? "Your crew, as it stands this morning."
-              : pacts.length === 2
-                ? "Both crews, as they stand this morning."
-                : "Every crew, as they stand this morning."}
-          </p>
-
-          <div className="mt-6 grid gap-8 lg:grid-cols-2 lg:gap-x-10">
-            {pacts.map((pact, i) => (
-              <section
-                key={pact.id}
-                className={cn(i > 0 && "border-t border-hairline pt-7 lg:border-t-0 lg:pt-0")}
-              >
-                <FieldLabel>{pact.name}</FieldLabel>
-                <CrewTable className="mt-1" rows={crewRows(pact, now)} />
-              </section>
-            ))}
-          </div>
-        </Panel>
-      </div>
+      <CrewOverview pacts={pacts} now={now} />
     </div>
   );
 }

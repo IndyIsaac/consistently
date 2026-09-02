@@ -34,7 +34,8 @@ import type {
  * The app is viewable at localhost:3000 with no DATABASE_URL, no Privy app id
  * and no funded wallet because every screen reads from this file instead of the
  * database. It is the builder's own situation: a five-day gym pact with four
- * members, a two-person CFA study pact, Thai baht, late in the week.
+ * members, a two-person CFA study pact, plus five extra crews so the
+ * dashboard can be judged crowded. Thai baht, late in the week.
  *
  * TO DELETE IT: remove this file. Four call sites break, and each one is the
  * exact place a real query belongs:
@@ -150,7 +151,13 @@ const CFA_RULE: RuleConfig = {
 };
 
 const CFA_SESSIONS: Record<string, SessionRecord[]> = {
-  indy: [did(MON, "20:10", 135), did(TUE, "20:05", 128), did(WED, "19:50", 142), did(THU, "06:00", 140)],
+  indy: [
+    did(MON, "20:10", 135),
+    did(TUE, "20:05", 128),
+    did(WED, "19:50", 142),
+    did(THU, "06:00", 140),
+    did(FRI, "06:10", 132),
+  ],
   kwan: [did(MON, "21:00", 126), did(TUE, "20:40", 133), did(THU, "06:20", 121)],
 };
 
@@ -170,6 +177,8 @@ type Person = {
   initials: string;
   forfeitedToDate: number;
   forfeitedPeriods: number;
+  /** Stem under /mock/faces. Defaults to `key` so the original seats stay put. */
+  face?: string;
 };
 
 const GYM_CREW: Person[] = [
@@ -215,7 +224,7 @@ function buildCrew(
       initials: person.initials,
       // Committed under public/mock/faces and named for the seat, so the demo
       // shows people rather than a wall of initials.
-      avatarUrl: `/mock/faces/${person.key}.jpg`,
+      avatarUrl: `/mock/faces/${person.face ?? person.key}.jpg`,
       status: "staked" as const,
       isViewer: person.userId === VIEWER.id,
       forfeitedToDate: person.forfeitedToDate,
@@ -242,6 +251,206 @@ const DAVE_EXEMPTION: MockExemption = {
   requesterName: "Dave Whitfield",
   viewerVoted: false,
 };
+
+function weekRule(cadence: number, minDurationMins: number): RuleConfig {
+  return {
+    cadence,
+    period: "week",
+    sessionType: "checkin_checkout",
+    minDurationMins,
+    windowStart: "05:00",
+    windowEnd: "23:00",
+    proof: "photo",
+    failsWhenMissedExceeds: 0,
+    split: "equal",
+    exemption: "majority",
+    durationPeriods: 12,
+  };
+}
+
+function extraPerson(
+  key: string,
+  displayName: string,
+  initials: string,
+  forfeitedToDate = 0,
+  forfeitedPeriods = 0,
+): Person {
+  return {
+    key,
+    userId: key === "indy" ? VIEWER.id : `usr_${key}`,
+    displayName,
+    initials,
+    face: key,
+    forfeitedToDate,
+    forfeitedPeriods,
+  };
+}
+
+function extraPact(opts: {
+  short: string;
+  name: string;
+  rule: RuleConfig;
+  people: Person[];
+  sessions: Record<string, SessionRecord[]>;
+  stakeAmount: number;
+  settledPeriods: number;
+  viewerEarned: number;
+  viewerLost: number;
+  vaultAddress: string;
+}): MockPact {
+  return {
+    id: `pact_${opts.short}`,
+    name: opts.name,
+    inviteToken: `mock-${opts.short}`,
+    ruleConfig: opts.rule,
+    timezone: TIMEZONE,
+    stakeAmount: opts.stakeAmount,
+    stakeCurrency: "THB",
+    status: "active",
+    startsAt: at("2026-07-20", "00:00"),
+    settledPeriods: opts.settledPeriods,
+    crew: buildCrew(opts.short, opts.people, opts.sessions, opts.rule),
+    viewerMemberId: `mem_${opts.short}_indy`,
+    vaultAddress: opts.vaultAddress,
+    stakeUsdc: "28500000",
+    viewerStatus: "staked",
+    viewerOpenSession: null,
+    viewerEarned: opts.viewerEarned,
+    viewerLost: opts.viewerLost,
+    pendingExemption: null,
+  };
+}
+
+const RUN_RULE = weekRule(4, 40);
+const SAUNA_RULE = weekRule(4, 25);
+const BOXING_RULE = weekRule(3, 60);
+const THAI_RULE = weekRule(3, 90);
+const PAGES_RULE = weekRule(5, 45);
+
+const EXTRA_PACTS: MockPact[] = [
+  extraPact({
+    short: "six_am_run",
+    name: "6am run",
+    rule: RUN_RULE,
+    people: [
+      extraPerson("indy", "Indy", "IN", 0, 0),
+      extraPerson("mae", "Mae Prasert", "MP", 0, 0),
+      extraPerson("ton", "Ton Rojanasunthorn", "TR", 1000, 1),
+      extraPerson("lark", "Lark Chen", "LC", 0, 0),
+      extraPerson("som", "Somchai Wirat", "SW", 2000, 2),
+    ],
+    sessions: {
+      indy: [
+        did(MON, "06:05", 42),
+        did(TUE, "06:08", 44),
+        did(WED, "06:02", 47),
+        did(FRI, "06:04", 43),
+      ],
+      mae: [did(MON, "05:52", 41), did(TUE, "05:50", 43), did(WED, "05:55", 40), did(THU, "05:48", 46)],
+      ton: [did(MON, "06:20", 40), did(TUE, "06:22", 41)],
+      lark: [did(MON, "06:00", 48), did(TUE, "06:01", 45), did(WED, "05:59", 50), did(THU, "06:03", 44)],
+      som: [did(MON, "06:40", 40)],
+    },
+    stakeAmount: 500,
+    settledPeriods: 3,
+    viewerEarned: 500,
+    viewerLost: 0,
+    vaultAddress: "4Kp2nYmW9sUeXc7vRb1tHdAf3LgQj8Zo5NwUiE6yMsCr",
+  }),
+  extraPact({
+    short: "sauna_club",
+    name: "Sauna club",
+    rule: SAUNA_RULE,
+    people: [
+      extraPerson("indy", "Indy", "IN", 500, 1),
+      extraPerson("ying", "Ying Srisuk", "YS", 0, 0),
+      extraPerson("arun", "Arun Patel", "AP", 1500, 3),
+    ],
+    sessions: {
+      indy: [
+        did(MON, "19:10", 28),
+        did(TUE, "19:05", 31),
+        did(THU, "19:20", 26),
+        did(FRI, "07:30", 28),
+      ],
+      ying: [did(MON, "18:40", 30), did(TUE, "18:35", 27), did(WED, "18:50", 33), did(THU, "18:42", 29)],
+      arun: [did(MON, "20:15", 25)],
+    },
+    stakeAmount: 500,
+    settledPeriods: 4,
+    viewerEarned: 0,
+    viewerLost: 500,
+    vaultAddress: "6Rm8pYtN4wVdZb2qHgFa9XcJkE5sUhWm7TrXyC1vKpLd",
+  }),
+  extraPact({
+    short: "boxing",
+    name: "Boxing",
+    rule: BOXING_RULE,
+    people: [
+      extraPerson("indy", "Indy", "IN", 2000, 2),
+      extraPerson("nok", "Nok Jiranun", "NJ", 0, 0),
+      extraPerson("felix", "Felix Moreau", "FM", 1000, 1),
+      extraPerson("pla", "Pla Thamrong", "PT", 0, 0),
+      extraPerson("mina", "Mina Okada", "MO", 3000, 3),
+      extraPerson("gai", "Gai Boonmee", "GB", 0, 0),
+    ],
+    sessions: {
+      indy: [did(MON, "17:30", 65), did(WED, "17:25", 70)],
+      nok: [did(MON, "17:00", 72), did(WED, "17:05", 68), did(FRI, "07:10", 64)],
+      felix: [did(MON, "18:00", 61), did(WED, "18:10", 63)],
+      pla: [did(MON, "17:15", 66), did(WED, "17:20", 71), did(FRI, "07:00", 69)],
+      mina: [did(MON, "19:00", 60)],
+      gai: [did(MON, "17:40", 67), did(WED, "17:35", 62)],
+    },
+    stakeAmount: 1500,
+    settledPeriods: 6,
+    viewerEarned: 0,
+    viewerLost: 2000,
+    vaultAddress: "2Ht5sXqL7uWeVc8yRb3kJdAf4MhPj9Zo6NwUiF7xMsBn",
+  }),
+  extraPact({
+    short: "thai_class",
+    name: "Thai class",
+    rule: THAI_RULE,
+    people: [
+      extraPerson("indy", "Indy", "IN", 0, 0),
+      extraPerson("fern", "Fern Lertwittaya", "FL", 0, 0),
+      extraPerson("rio", "Rio Santos", "RS", 1000, 1),
+      extraPerson("bee", "Bee Anuwat", "BA", 0, 0),
+    ],
+    sessions: {
+      indy: [did(MON, "19:00", 95), did(WED, "19:05", 98), did(FRI, "07:00", 92)],
+      fern: [did(MON, "18:50", 92), did(TUE, "18:55", 100), did(WED, "18:48", 97)],
+      rio: [did(MON, "19:20", 90)],
+      bee: [did(MON, "19:10", 94), did(WED, "19:12", 91)],
+    },
+    stakeAmount: 800,
+    settledPeriods: 2,
+    viewerEarned: 800,
+    viewerLost: 0,
+    vaultAddress: "8Wq3mYtK5vUeXb9nRc2pHdAf6LgQj1Zo4NwUiE8yMsDp",
+  }),
+  extraPact({
+    short: "pages_a_day",
+    name: "Pages a day",
+    rule: PAGES_RULE,
+    people: [
+      extraPerson("indy", "Indy", "IN", 1500, 1),
+      extraPerson("oak", "Oak Sutham", "OS", 0, 0),
+      extraPerson("lin", "Lin Moretti", "LM", 1000, 1),
+    ],
+    sessions: {
+      indy: [did(MON, "21:10", 50)],
+      oak: [did(MON, "20:40", 52), did(TUE, "20:35", 48), did(WED, "20:50", 55), did(THU, "20:42", 47)],
+      lin: [did(MON, "21:00", 46), did(TUE, "21:05", 51), did(WED, "20:55", 49)],
+    },
+    stakeAmount: 1500,
+    settledPeriods: 4,
+    viewerEarned: 0,
+    viewerLost: 1500,
+    vaultAddress: "5Np7kYsM3wVdZc1qHgFa8XcJkE6sUhWm9TrXyB2vKpLe",
+  }),
+];
 
 const PACTS: MockPact[] = [
   {
@@ -295,6 +504,7 @@ const PACTS: MockPact[] = [
     viewerLost: 0,
     pendingExemption: null,
   },
+  ...EXTRA_PACTS,
 ];
 
 const SESSION: MockSession = {
@@ -473,7 +683,12 @@ function cfaSeeds(pact: MockPact): Seed[] {
 }
 
 function seedChannel(pact: MockPact): FeedItemDto[] {
-  const seeds = pact.id === "pact_five_a_week" ? gymSeeds(pact) : cfaSeeds(pact);
+  const seeds =
+    pact.id === "pact_five_a_week"
+      ? gymSeeds(pact)
+      : pact.id === "pact_cfa_level_two"
+        ? cfaSeeds(pact)
+        : [];
   return seeds
     .map((seed, i) => ({
       id: `fi_${pact.id}_${String(i).padStart(2, "0")}`,

@@ -23,11 +23,12 @@ concept-led alternatives. The ambition lives in execution rather than in metapho
 | `muted` | `#737373` | Secondary labels, inactive icons, sub-rows. |
 | `hairline` | `#E5E5E5` | Borders, dividers. Dashed at 1px where a break is soft. |
 | `surface` | `#F5F5F5` | Inset panels, the "you" row, disclosure blocks. |
-| `owed` | `#B42318` | Money you have lost. The only red in the product. |
-| `earned` | `#067647` | Money you have gained. The only green. |
+| `owed` | `#B42318` | Money you have lost. Also a miss: today's cross, a week out of reach. |
+| `earned` | `#067647` | Money you have gained. Also a make: today's tick, a week already met. |
+| `pace` | `#C2410C` | The week is still reachable. Icons only — never a figure. |
 
-Red and green appear **only** against money and settled outcomes. Nothing else in the interface is
-coloured — not status, not streaks, not navigation.
+Red and green mark money and cadence. Navigation and type stay ink. `pace` is the one orange,
+and it never sits on a number.
 
 ## Type
 
@@ -97,8 +98,9 @@ The interior's dark counterpart. Never pure black — the ground is lifted so ca
 | `muted` | `#737373` | `#8A8A8A` | Secondary labels, inactive icons |
 | `hairline` | `#E5E5E5` | `#262626` | Borders, dividers |
 | `surface` | `#F5F5F5` | `#171718` | Inset panels, the "you" row |
-| `owed` | `#B42318` | `#F97066` | Money lost |
-| `earned` | `#067647` | `#47CD89` | Money gained |
+| `owed` | `#B42318` | `#F97066` | Money lost; a miss |
+| `earned` | `#067647` | `#47CD89` | Money gained; a make |
+| `pace` | `#C2410C` | `#FB923C` | Week still reachable |
 
 Money colours **must** shift between themes. `#B42318` on `#0C0C0D` fails contrast badly; the dark
 variants are deliberately lighter. Verify both pairs against the ground before shipping — a

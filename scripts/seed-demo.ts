@@ -16,19 +16,15 @@ import { randomBytes } from "node:crypto";
  *
  * lib/mock-session.ts, in Postgres.
  *
- * The same two crews, the same people, the same sessions to the minute, and a
- * settlement history that produces the same money on the dashboard -- so the
- * screens read identically whether they are being served the fixture or the
- * database. That is the whole point: the demo everyone has been looking at is
- * the one that has to keep working once the rows are real.
+ * The same crews as lib/mock-session.ts, the same people, and a settlement
+ * history that produces the same money on the dashboard -- so the screens
+ * read identically whether they are being served the fixture or the database.
  *
- * Anybody who has actually signed in takes the viewer's seat, oldest account
- * first, keeping their own name and wallet. A real account with an empty
- * dashboard is a bad place to rehearse from -- every screen here (streaks, day
- * markers, the crew table, earned and lost) needs a populated crew to show
- * anything at all.
+ * The viewer's seat goes to the account named Indy when one exists, otherwise
+ * the oldest real sign-in. A real account with an empty dashboard is a bad
+ * place to rehearse from -- every screen here needs a populated crew.
  *
- * Re-runnable: it deletes these two crews first. Real accounts are never
+ * Re-runnable: it deletes these crews first. Real accounts are never
  * deleted, only re-enrolled.
  * ------------------------------------------------------------------------- */
 
@@ -37,6 +33,13 @@ const TIMEZONE = "Asia/Bangkok";
 const GYM = "Five a week";
 const CFA = "CFA Level II";
 const RUN = "Long run";
+const SIX = "6am run";
+const SAUNA = "Sauna club";
+const BOXING = "Boxing";
+const THAI = "Thai class";
+const PAGES = "Pages a day";
+
+const SEEDED = [GYM, CFA, RUN, SIX, SAUNA, BOXING, THAI, PAGES];
 
 const GYM_RULE: RuleConfig = {
   cadence: 5,
@@ -88,15 +91,44 @@ const RUN_RULE: RuleConfig = {
   durationPeriods: 12,
 };
 
+function weekRule(cadence: number, minDurationMins: number): RuleConfig {
+  return {
+    cadence,
+    period: "week",
+    sessionType: "checkin_checkout",
+    minDurationMins,
+    windowStart: "05:00",
+    windowEnd: "23:00",
+    proof: "photo",
+    failsWhenMissedExceeds: 0,
+    split: "equal",
+    exemption: "majority",
+    durationPeriods: 12,
+  };
+}
+
 /** A session: which day of the crew-local week, what time, how long. */
 type Sitting = { day: number; at: string; mins: number };
 
 type Seat = {
   name: string;
+  /** Stem under /mock/faces. Defaults to the first name, lowercased. */
+  face?: string;
   /** Weeks this member has forfeited in. Drives the settlement history below. */
   forfeits: number;
   sittings: Sitting[];
 };
+
+function faceOf(seat: Seat): string {
+  return seat.face ?? seat.name.toLowerCase().split(" ")[0]!;
+}
+
+/** Indy sits first when a real account uses that name. Everybody else follows. */
+function preferIndy(real: User[]): User[] {
+  const indy = real.find((u) => /\bindy\b/i.test(u.displayName));
+  if (!indy) return real;
+  return [indy, ...real.filter((u) => u.id !== indy.id)];
+}
 
 /** Exactly lib/mock-session.ts's GYM_SESSIONS, in the same order. */
 const GYM_CREW: Seat[] = [
@@ -146,6 +178,7 @@ const CFA_CREW: Seat[] = [
       { day: 1, at: "20:05", mins: 128 },
       { day: 2, at: "19:50", mins: 142 },
       { day: 3, at: "06:00", mins: 140 },
+      { day: 4, at: "06:10", mins: 132 },
     ],
   },
   {
@@ -180,6 +213,139 @@ const RUN_CREW: Seat[] = [
   { name: "Nat Suwannarat", forfeits: 0, sittings: [{ day: 0, at: "06:40", mins: 96 }] },
   { name: "Pim Chaiyaphum", forfeits: 1, sittings: [] },
   { name: "Kwan Ratanakul", forfeits: 0, sittings: [{ day: 2, at: "07:05", mins: 68 }] },
+];
+
+const SIX_CREW: Seat[] = [
+  {
+    name: "Indy",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "06:05", mins: 42 },
+      { day: 1, at: "06:08", mins: 44 },
+      { day: 2, at: "06:02", mins: 47 },
+      { day: 3, at: "06:04", mins: 43 },
+      { day: 4, at: "06:04", mins: 43 },
+    ],
+  },
+  {
+    name: "Mae Prasert",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "05:52", mins: 41 },
+      { day: 1, at: "05:50", mins: 43 },
+      { day: 2, at: "05:55", mins: 40 },
+      { day: 3, at: "05:48", mins: 46 },
+    ],
+  },
+  { name: "Ton Rojanasunthorn", face: "ton", forfeits: 1, sittings: [{ day: 0, at: "06:20", mins: 40 }, { day: 1, at: "06:22", mins: 41 }] },
+  {
+    name: "Lark Chen",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "06:00", mins: 48 },
+      { day: 1, at: "06:01", mins: 45 },
+      { day: 2, at: "05:59", mins: 50 },
+      { day: 3, at: "06:03", mins: 44 },
+    ],
+  },
+  { name: "Somchai Wirat", face: "som", forfeits: 2, sittings: [{ day: 0, at: "06:40", mins: 40 }] },
+];
+
+const SAUNA_CREW: Seat[] = [
+  {
+    name: "Indy",
+    forfeits: 1,
+    sittings: [
+      { day: 0, at: "19:10", mins: 28 },
+      { day: 1, at: "19:05", mins: 31 },
+      { day: 2, at: "19:00", mins: 27 },
+      { day: 3, at: "19:20", mins: 26 },
+      { day: 4, at: "07:30", mins: 28 },
+    ],
+  },
+  {
+    name: "Ying Srisuk",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "18:40", mins: 30 },
+      { day: 1, at: "18:35", mins: 27 },
+      { day: 2, at: "18:50", mins: 33 },
+      { day: 3, at: "18:42", mins: 29 },
+    ],
+  },
+  { name: "Arun Patel", forfeits: 3, sittings: [{ day: 0, at: "20:15", mins: 25 }] },
+];
+
+const BOXING_CREW: Seat[] = [
+  { name: "Indy", forfeits: 2, sittings: [{ day: 0, at: "17:30", mins: 65 }, { day: 2, at: "17:25", mins: 70 }] },
+  {
+    name: "Nok Jiranun",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "17:00", mins: 72 },
+      { day: 2, at: "17:05", mins: 68 },
+      { day: 4, at: "07:10", mins: 64 },
+    ],
+  },
+  { name: "Felix Moreau", forfeits: 1, sittings: [{ day: 0, at: "18:00", mins: 61 }, { day: 2, at: "18:10", mins: 63 }] },
+  {
+    name: "Pla Thamrong",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "17:15", mins: 66 },
+      { day: 2, at: "17:20", mins: 71 },
+      { day: 4, at: "07:00", mins: 69 },
+    ],
+  },
+  { name: "Mina Okada", forfeits: 3, sittings: [{ day: 0, at: "19:00", mins: 60 }] },
+  { name: "Gai Boonmee", forfeits: 0, sittings: [{ day: 0, at: "17:40", mins: 67 }, { day: 2, at: "17:35", mins: 62 }] },
+];
+
+const THAI_CREW: Seat[] = [
+  {
+    name: "Indy",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "19:00", mins: 95 },
+      { day: 2, at: "19:05", mins: 98 },
+      { day: 3, at: "19:00", mins: 94 },
+      { day: 4, at: "07:00", mins: 92 },
+    ],
+  },
+  {
+    name: "Fern Lertwittaya",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "18:50", mins: 92 },
+      { day: 1, at: "18:55", mins: 100 },
+      { day: 2, at: "18:48", mins: 97 },
+    ],
+  },
+  { name: "Rio Santos", forfeits: 1, sittings: [{ day: 0, at: "19:20", mins: 90 }] },
+  { name: "Bee Anuwat", forfeits: 0, sittings: [{ day: 0, at: "19:10", mins: 94 }, { day: 2, at: "19:12", mins: 91 }] },
+];
+
+const PAGES_CREW: Seat[] = [
+  { name: "Indy", forfeits: 1, sittings: [{ day: 0, at: "21:10", mins: 50 }] },
+  {
+    name: "Oak Sutham",
+    forfeits: 0,
+    sittings: [
+      { day: 0, at: "20:40", mins: 52 },
+      { day: 1, at: "20:35", mins: 48 },
+      { day: 2, at: "20:50", mins: 55 },
+      { day: 3, at: "20:42", mins: 47 },
+    ],
+  },
+  {
+    name: "Lin Moretti",
+    forfeits: 1,
+    sittings: [
+      { day: 0, at: "21:00", mins: 46 },
+      { day: 1, at: "21:05", mins: 51 },
+      { day: 2, at: "20:55", mins: 49 },
+    ],
+  },
 ];
 
 /**
@@ -223,42 +389,45 @@ async function seedCrew(params: {
   week: string[];
   todayIndex: number;
   usdRate: number;
+  stakeAmount?: number;
 }) {
   const { name, rule, crew, real, week, todayIndex, usdRate } = params;
+  const stakeAmount = params.stakeAmount ?? 1000;
 
   const users: User[] = [];
   for (const [i, seat] of crew.entries()) {
     // The viewer's seat goes to whoever is actually signed in.
-    if (real[i]) {
+      if (real[i]) {
+      const slug = faceOf(seat);
       users.push(
         await prisma.user.update({
           where: { id: real[i].id },
-          data: { walletFundedAt: real[i].walletFundedAt ?? new Date() },
+          data: {
+            walletFundedAt: real[i].walletFundedAt ?? new Date(),
+            avatarUrl: real[i].avatarUrl ?? `/mock/faces/${slug}.jpg`,
+          },
         }),
       );
       continue;
     }
-    const slug = seat.name.toLowerCase().split(" ")[0];
+    const slug = faceOf(seat);
+    const avatarUrl = `/mock/faces/${slug}.jpg`;
     users.push(
       await prisma.user.upsert({
         where: { privyId: `did:privy:seed-${slug}` },
-        update: {},
+        update: { displayName: seat.name, avatarUrl },
         create: {
           privyId: `did:privy:seed-${slug}`,
           walletAddress: `seed-wallet-${slug}`,
           displayName: seat.name,
-          // A face rather than initials. Committed under public/mock/faces, so
-          // this is a path the app serves itself and a demo never waits on
-          // somebody else's CDN. Named for the seat: swapping one is a file
-          // drop with no code change.
-          avatarUrl: `/mock/faces/${slug}.jpg`,
+          avatarUrl,
           walletFundedAt: new Date(),
         },
       }),
     );
   }
 
-  const stakeUsdc = toUsdcAtomic(1000, usdRate);
+  const stakeUsdc = toUsdcAtomic(stakeAmount, usdRate);
   const vault = createVault();
 
   const pact = await prisma.pact.create({
@@ -268,7 +437,7 @@ async function seedCrew(params: {
       createdById: users[0].id,
       ruleConfig: rule,
       timezone: TIMEZONE,
-      stakeAmount: "1000",
+      stakeAmount: String(stakeAmount),
       stakeCurrency: "THB",
       fxRateToUsd: usdRate.toFixed(8),
       fxFetchedAt: new Date(),
@@ -385,18 +554,20 @@ async function main() {
   const week = weekDayKeys(TIMEZONE, now);
   const todayIndex = Math.max(0, week.indexOf(dayKeyFor(now, TIMEZONE)));
 
-  // Both crews, and anything an older version of this script left behind.
+  // These crews, and anything an older version of this script left behind.
   const stale = await prisma.pact.findMany({
     where: {
-      OR: [{ name: GYM }, { name: CFA }, { name: RUN }, { name: { contains: "seed-demo" } }],
+      OR: [{ name: { in: SEEDED } }, { name: { contains: "seed-demo" } }],
     },
   });
   for (const p of stale) await prisma.pact.delete({ where: { id: p.id } });
 
-  const real = await prisma.user.findMany({
-    where: { privyId: { not: { startsWith: "did:privy:seed-" } } },
-    orderBy: { createdAt: "asc" },
-  });
+  const real = preferIndy(
+    await prisma.user.findMany({
+      where: { privyId: { not: { startsWith: "did:privy:seed-" } } },
+      orderBy: { createdAt: "asc" },
+    }),
+  );
 
   const usdRate = await fetchUsdRate("THB");
 
@@ -409,6 +580,24 @@ async function main() {
   await seedCrew({
     name: CFA, rule: CFA_RULE, crew: CFA_CREW, real, week, todayIndex, usdRate,
   });
+  // Extra crews keep their own faces. Only Indy (real[0]) takes a seat;
+  // everybody else is a seeded portrait, used once.
+  const indyOnly = real.slice(0, 1);
+  await seedCrew({
+    name: SIX, rule: weekRule(4, 40), crew: SIX_CREW, real: indyOnly, week, todayIndex, usdRate, stakeAmount: 500,
+  });
+  await seedCrew({
+    name: SAUNA, rule: weekRule(4, 25), crew: SAUNA_CREW, real: indyOnly, week, todayIndex, usdRate, stakeAmount: 500,
+  });
+  await seedCrew({
+    name: BOXING, rule: weekRule(3, 60), crew: BOXING_CREW, real: indyOnly, week, todayIndex, usdRate, stakeAmount: 1500,
+  });
+  await seedCrew({
+    name: THAI, rule: weekRule(3, 90), crew: THAI_CREW, real: indyOnly, week, todayIndex, usdRate, stakeAmount: 800,
+  });
+  await seedCrew({
+    name: PAGES, rule: weekRule(5, 45), crew: PAGES_CREW, real: indyOnly, week, todayIndex, usdRate, stakeAmount: 1500,
+  });
 
   // --- read it back through the real path ---------------------------------
   const viewer = gym.users[0];
@@ -416,7 +605,7 @@ async function main() {
   const view = await livePact(gym.pact.id, viewer, now);
 
   console.log("");
-  console.log(`  Seeded "${GYM}", "${RUN}" and "${CFA}" — the mock, in Postgres.`);
+  console.log(`  Seeded ${SEEDED.map((n) => `"${n}"`).join(", ")} — the mock, in Postgres.`);
   if (real.length > 0) {
     console.log(`  Viewer is a real account: ${real[0].displayName}`);
   }
@@ -441,7 +630,7 @@ async function main() {
 
   const problems: string[] = [];
   // At least two: the viewer may have crews of their own, which is fine.
-  if (session.pacts.length < 2) problems.push(`expected 2 pacts, got ${session.pacts.length}`);
+  if (session.pacts.length < 7) problems.push(`expected at least 7 pacts, got ${session.pacts.length}`);
   if (view!.crew.length !== GYM_CREW.length) {
     problems.push(`gym crew is ${view!.crew.length}, seeded ${GYM_CREW.length}`);
   }
@@ -468,11 +657,23 @@ async function main() {
   const seated = real.slice(0, Math.max(GYM_CREW.length, RUN_CREW.length, CFA_CREW.length));
   for (const account of seated) {
     const inCrews = await prisma.membership.count({
-      where: { userId: account.id, pact: { name: { in: [GYM, CFA, RUN] } } },
+      where: { userId: account.id, pact: { name: { in: SEEDED } } },
     });
     if (inCrews < 2) {
       problems.push(`${account.displayName} is in ${inCrews} seeded crew, expected at least 2`);
     }
+  }
+
+  const portraits = await prisma.user.findMany({
+    where: { privyId: { startsWith: "did:privy:seed-" }, avatarUrl: { not: null } },
+    select: { displayName: true, avatarUrl: true },
+  });
+  const seen = new Map<string, string>();
+  for (const person of portraits) {
+    const url = person.avatarUrl!;
+    const other = seen.get(url);
+    if (other) problems.push(`${person.displayName} and ${other} share ${url}`);
+    else seen.set(url, person.displayName);
   }
 
   console.log("");

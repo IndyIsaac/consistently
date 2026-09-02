@@ -4,6 +4,7 @@ import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { FIELD, FieldLabel } from "@/components/Panel";
 import { Select } from "@/components/Select";
+import { TimeField } from "@/components/TimeField";
 import { Stepper } from "@/components/Stepper";
 import type { RuleConfig } from "@/lib/rules";
 import { upload } from "@/lib/upload";
@@ -205,20 +206,16 @@ export function RuleEditor({
         <div className="py-3">
           <span className="text-[14px] text-grey-on-ground">Allowed between</span>
           <div className="mt-3 flex items-center gap-2">
-            <input
-              type="time"
+            <TimeField
               aria-label="Earliest a session may start"
-              className={`${FIELD} figure min-w-0 flex-1`}
               value={value.windowStart}
-              onChange={(e) => set("windowStart", e.target.value)}
+              onChange={(next) => set("windowStart", next)}
             />
             <span className="shrink-0 text-[13px] text-grey-on-ground">and</span>
-            <input
-              type="time"
+            <TimeField
               aria-label="Latest a session may start"
-              className={`${FIELD} figure min-w-0 flex-1`}
               value={value.windowEnd}
-              onChange={(e) => set("windowEnd", e.target.value)}
+              onChange={(next) => set("windowEnd", next)}
             />
           </div>
         </div>
