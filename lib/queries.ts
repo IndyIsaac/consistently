@@ -278,6 +278,7 @@ export async function liveSession(viewer: User, now: Date): Promise<AppSession> 
       walletAddress: viewer.walletAddress,
       displayName: viewer.displayName,
       initials: initialsOf(viewer.displayName),
+      avatarUrl: viewer.avatarUrl,
     },
     now,
     currency: target?.stakeCurrency ?? "USD",

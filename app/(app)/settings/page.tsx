@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LinkedAccounts } from "@/components/LinkedAccounts";
 import { DashedRule, FieldLabel, Panel } from "@/components/Panel";
 import { ProfileForm } from "@/components/ProfileForm";
@@ -74,6 +74,7 @@ export default async function SettingsPage() {
       <Panel className="mt-8 max-w-[32rem]">
         <div className="flex items-center gap-4">
           <Avatar className="size-14">
+            {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt="" />}
             <AvatarFallback className="bg-surface text-[15px] font-semibold tracking-[0.02em] text-grey-on-surface">
               {user.initials}
             </AvatarFallback>
