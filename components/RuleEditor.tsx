@@ -7,6 +7,7 @@ import { Select } from "@/components/Select";
 import { Stepper } from "@/components/Stepper";
 import type { RuleConfig } from "@/lib/rules";
 import { upload } from "@/lib/upload";
+import { IMAGE_ACCEPT } from "@/lib/images";
 
 /* ---------------------------------------------------------------------------
  * The rule, as seven fields.
@@ -48,7 +49,7 @@ function ReferenceSlot({
       <span className="text-[12px] text-grey-on-ground">{label}</span>
       <input
         type="file"
-        accept="image/*"
+        accept={IMAGE_ACCEPT}
         className="sr-only"
         onChange={async (e) => {
           const file = e.target.files?.[0];

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { getAccessToken } from "@privy-io/react-auth";
+import { authHeader } from "@/lib/token";
 import { isTimeout } from "@/lib/utils";
 import { ArrowLeft, QrCode } from "lucide-react";
 import type { FeedItemDto } from "@/app/api/pacts/[id]/feed/route";
@@ -519,12 +519,12 @@ export function Channel({
        * pact left open long enough could not be settled, which is the one
        * action in this product that moves the money.
        */
-      const token = await getAccessToken().catch(() => null);
+      const auth = await authHeader();
       const res = await fetch(`/api/pacts/${view.pactId}/settle`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          ...auth,
         },
         body: JSON.stringify({ force }),
         // Generous: a settlement is several transfers, each confirmed. Long

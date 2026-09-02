@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { IMAGE_ACCEPT } from "@/lib/images";
 
 /**
  * The camera. Half of what a member can do in a group, and the only way a
@@ -53,7 +54,7 @@ export function CheckInCamera({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={IMAGE_ACCEPT}
         /**
          * `sr-only`, not `hidden`.
          *

@@ -13,7 +13,7 @@
  * ended up as the one that never got wired up.
  * ------------------------------------------------------------------------- */
 
-import { getAccessToken } from "@privy-io/react-auth";
+import { authHeader } from "@/lib/token";
 
 /**
  * Uploads one image and returns the URL every device can fetch it from.
@@ -36,14 +36,14 @@ export async function upload(file: File): Promise<string> {
    * lib/channel-client.ts had the identical bug. Onboarding and ProfileForm
    * never did, which is why those two kept working throughout.
    */
-  const token = await getAccessToken().catch(() => null);
+  const auth = await authHeader();
 
   const form = new FormData();
   form.append("file", file);
   // No content-type: the browser has to set the multipart boundary itself.
   const res = await fetch("/api/uploads", {
     method: "POST",
-    headers: token ? { authorization: `Bearer ${token}` } : undefined,
+    headers: auth,
     body: form,
   });
   const body = await res.json().catch(() => ({}));

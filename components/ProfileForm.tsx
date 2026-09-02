@@ -9,6 +9,7 @@ import { GithubMark, InstagramMark, TelegramMark, XMark } from "@/components/Soc
 import { upload } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { initialsOf } from "@/lib/view";
+import { IMAGE_ACCEPT } from "@/lib/images";
 
 const SOCIALS = [
   { key: "x", label: "X", Mark: XMark },
@@ -187,7 +188,7 @@ export function ProfileForm({ initial }: {
         </span>
         <input
           type="file"
-          accept="image/*"
+          accept={IMAGE_ACCEPT}
           className="sr-only"
           disabled={avatarState === "uploading"}
           onChange={onAvatarChange}
