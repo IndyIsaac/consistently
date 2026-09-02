@@ -180,7 +180,11 @@ export default async function DashboardPage({
       </h1>
 
       <p className="mt-4 max-w-[38ch] text-[15px] leading-relaxed text-grey-on-ground">
-        {spell(settled)} weeks settled across {spell(pacts.length).toLowerCase()} crews.{" "}
+        {/* Counted, not assumed. With one crew this read "Five weeks settled
+            across one crews", which is the sort of thing a demo audience reads
+            before anything else on the page. */}
+        {spell(settled)} {settled === 1 ? "week" : "weeks"} settled across{" "}
+        {spell(pacts.length).toLowerCase()} {pacts.length === 1 ? "crew" : "crews"}.{" "}
         {formatMoney(onThisWeek, currency)} rides on this one.
       </p>
 
@@ -204,14 +208,35 @@ export default async function DashboardPage({
       </p>
 
       <div className="mt-10 grid items-start gap-4 lg:grid-cols-2">
-        {pacts.map((pact) => (
-          <PactCard key={pact.id} pact={pact} now={now} />
+        {pacts.map((pact, i) => (
+          /**
+           * An odd number of crews used to leave a hole.
+           *
+           * Two columns and one crew meant a card on the left and nothing at
+           * all on the right -- the emptiest thing on the page sitting beside
+           * the member's own week. Three crews put the same hole one row down.
+           *
+           * The last card of an odd set takes the full width instead, which
+           * lines it up with the "Everyone" panel below and reads as a
+           * deliberate row rather than a missing one. An even set is unchanged.
+           */
+          <div
+            key={pact.id}
+            className={pacts.length % 2 === 1 && i === pacts.length - 1 ? "lg:col-span-2" : undefined}
+          >
+            <PactCard pact={pact} now={now} />
+          </div>
         ))}
 
         <Panel className="lg:col-span-2">
           <h2 className="text-[15px] font-bold tracking-[-0.015em] text-ink">Everyone</h2>
           <p className="mt-1 text-[13px] text-grey-on-ground">
-            Both crews, as they stand this morning.
+            {/* "Both" is only true of two. */}
+            {pacts.length === 1
+              ? "Your crew, as it stands this morning."
+              : pacts.length === 2
+                ? "Both crews, as they stand this morning."
+                : "Every crew, as they stand this morning."}
           </p>
 
           <div className="mt-6 grid gap-8 lg:grid-cols-2 lg:gap-x-10">
