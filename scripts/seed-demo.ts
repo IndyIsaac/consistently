@@ -7,6 +7,7 @@ import { dayKeyFor, type RuleConfig } from "../lib/rules";
 import { weekDayKeys } from "../lib/pact-view";
 import { liveSession, livePact } from "../lib/queries";
 import { formatMoney } from "../lib/money";
+import { checkedInLine, checkedOutLine } from "../lib/bot";
 import type { SettlementRecord } from "../lib/settlement";
 import { randomBytes } from "node:crypto";
 
@@ -35,6 +36,7 @@ const TIMEZONE = "Asia/Bangkok";
 
 const GYM = "Five a week";
 const CFA = "CFA Level II";
+const RUN = "Long run";
 
 const GYM_RULE: RuleConfig = {
   cadence: 5,
@@ -62,6 +64,28 @@ const CFA_RULE: RuleConfig = {
   split: "equal",
   exemption: "majority",
   durationPeriods: 10,
+};
+
+/**
+ * A third crew, and deliberately the least like the other two.
+ *
+ * Five a week is daily and photographed; CFA Level II is six two-hour sittings.
+ * Both are heavy. This one is once a week and self-attested, which is what most
+ * real pacts look like -- and it gives the screens a rule with no photo and a
+ * cadence of one to render, rather than three variations on the same shape.
+ */
+const RUN_RULE: RuleConfig = {
+  cadence: 1,
+  period: "week",
+  sessionType: "checkin",
+  minDurationMins: null,
+  windowStart: "05:00",
+  windowEnd: "20:00",
+  proof: "self_attest",
+  failsWhenMissedExceeds: 0,
+  split: "equal",
+  exemption: "majority",
+  durationPeriods: 12,
 };
 
 /** A session: which day of the crew-local week, what time, how long. */
@@ -134,6 +158,51 @@ const CFA_CREW: Seat[] = [
     ],
   },
 ];
+
+/**
+ * Four seats on purpose.
+ *
+ * seedCrew fills seat i with real[i], so a crew is only as inclusive as it is
+ * long: the two-seat CFA crew stopped at the second real account, which left
+ * Indy in one crew while the viewer was in two. Four seats reaches every real
+ * account there is.
+ *
+ * `checkin` sessions have no check-out, so these carry a nominal duration the
+ * rule never reads.
+ *
+ * The days are early in the week on purpose. Only sittings on or before today
+ * are seeded, so a crew whose runs were all on Sunday produced no sessions, no
+ * feed rows and an empty channel -- which is the one screen a demo lingers on.
+ * One run each, already done, except the member who is behind.
+ */
+const RUN_CREW: Seat[] = [
+  { name: "Indy", forfeits: 0, sittings: [{ day: 1, at: "07:15", mins: 74 }] },
+  { name: "Nat Suwannarat", forfeits: 0, sittings: [{ day: 0, at: "06:40", mins: 96 }] },
+  { name: "Pim Chaiyaphum", forfeits: 1, sittings: [] },
+  { name: "Kwan Ratanakul", forfeits: 0, sittings: [{ day: 2, at: "07:05", mins: 68 }] },
+];
+
+/**
+ * The three committed check-in photos, dealt round the crew.
+ *
+ * A channel with no pictures in it is the emptiest screen in the product, and
+ * these are the same files lib/mock-session.ts uses -- served by the app, so
+ * nothing on a stage waits on someone else's CDN.
+ */
+const CHECKIN_PHOTOS = [
+  "/mock/checkin-rack.jpg",
+  "/mock/checkin-dumbbells.jpg",
+  "/mock/checkin-treadmill.jpg",
+];
+
+/**
+ * "Nat Suwannarat" -> "Nat". What the bot calls somebody in a sentence.
+ * lib/channel-view.ts keeps its own copy private; this is three lines and not
+ * worth widening that file's surface for a seed script.
+ */
+function firstName(displayName: string): string {
+  return displayName.split(" ")[0] || displayName;
+}
 
 function at(dayKey: string, hhmm: string): Date {
   return new Date(`${dayKey}T${hhmm}:00.000+07:00`);
@@ -225,16 +294,50 @@ async function seedCrew(params: {
     membershipOf.set(seat.name, membership.id);
 
     // Sessions are written by checking in, so one dated tomorrow cannot exist.
-    for (const sitting of seat.sittings.filter((s) => s.day <= todayIndex)) {
+    for (const [n, sitting] of seat.sittings.filter((s) => s.day <= todayIndex).entries()) {
       const startedAt = at(week[sitting.day], sitting.at);
+      const endedAt = new Date(startedAt.getTime() + sitting.mins * 60_000);
       await prisma.session.create({
         data: {
           membershipId: membership.id,
           startedAt,
-          endedAt: new Date(startedAt.getTime() + sitting.mins * 60_000),
+          endedAt,
           dayKey: dayKeyFor(startedAt, TIMEZONE),
         },
       });
+
+      /**
+       * The channel, written from the sessions rather than invented beside
+       * them. The seed used to create no feed rows at all, so every seeded
+       * crew opened onto an empty chat -- the screen a demo spends the most
+       * time on, with nothing in it.
+       *
+       * Each sitting leaves what the real routes leave: the member checking
+       * in with a photo, and checking out with the duration. A `checkin` rule
+       * has no check-out, so it only gets the first.
+       */
+      const who = firstName(users[i].displayName);
+      await prisma.feedItem.create({
+        data: {
+          pactId: pact.id,
+          membershipId: membership.id,
+          type: "checkin",
+          body: checkedInLine(who),
+          photoUrl: CHECKIN_PHOTOS[(i + n) % CHECKIN_PHOTOS.length],
+          createdAt: startedAt,
+        },
+      });
+      if (rule.sessionType === "checkin_checkout") {
+        await prisma.feedItem.create({
+          data: {
+            pactId: pact.id,
+            membershipId: membership.id,
+            type: "checkout",
+            body: checkedOutLine(who, sitting.mins),
+            createdAt: endedAt,
+          },
+        });
+      }
     }
   }
 
@@ -284,7 +387,9 @@ async function main() {
 
   // Both crews, and anything an older version of this script left behind.
   const stale = await prisma.pact.findMany({
-    where: { OR: [{ name: GYM }, { name: CFA }, { name: { contains: "seed-demo" } }] },
+    where: {
+      OR: [{ name: GYM }, { name: CFA }, { name: RUN }, { name: { contains: "seed-demo" } }],
+    },
   });
   for (const p of stale) await prisma.pact.delete({ where: { id: p.id } });
 
@@ -299,6 +404,9 @@ async function main() {
     name: GYM, rule: GYM_RULE, crew: GYM_CREW, real, week, todayIndex, usdRate,
   });
   await seedCrew({
+    name: RUN, rule: RUN_RULE, crew: RUN_CREW, real, week, todayIndex, usdRate,
+  });
+  await seedCrew({
     name: CFA, rule: CFA_RULE, crew: CFA_CREW, real, week, todayIndex, usdRate,
   });
 
@@ -308,7 +416,7 @@ async function main() {
   const view = await livePact(gym.pact.id, viewer, now);
 
   console.log("");
-  console.log(`  Seeded "${GYM}" and "${CFA}" — the mock, in Postgres.`);
+  console.log(`  Seeded "${GYM}", "${RUN}" and "${CFA}" — the mock, in Postgres.`);
   if (real.length > 0) {
     console.log(`  Viewer is a real account: ${real[0].displayName}`);
   }
@@ -343,6 +451,28 @@ async function main() {
   }
   if (view!.crew.some((m) => m.initials.length !== 2)) {
     problems.push("an avatar came back with the wrong number of letters");
+  }
+
+  /**
+   * Every real account should be in more than one crew.
+   *
+   * seedCrew fills seat i with real[i], so a crew is only as inclusive as it is
+   * long -- the two-seat CFA crew stopped at the second account, and everybody
+   * after it ended up with a single crew and a dashboard with a hole in it.
+   * Checking it here is cheaper than noticing on a screen.
+   */
+  // Only the accounts that actually take a seat. seedCrew fills seat i with
+  // real[i], so anybody past the longest crew is never seated and is not
+  // supposed to be -- checking them would fail on every leftover row in the
+  // database rather than on anything real.
+  const seated = real.slice(0, Math.max(GYM_CREW.length, RUN_CREW.length, CFA_CREW.length));
+  for (const account of seated) {
+    const inCrews = await prisma.membership.count({
+      where: { userId: account.id, pact: { name: { in: [GYM, CFA, RUN] } } },
+    });
+    if (inCrews < 2) {
+      problems.push(`${account.displayName} is in ${inCrews} seeded crew, expected at least 2`);
+    }
   }
 
   console.log("");
