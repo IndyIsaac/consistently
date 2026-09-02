@@ -22,6 +22,14 @@ export type ViewerUser = {
   walletAddress: string;
   displayName: string;
   initials: string;
+  /**
+   * The photo, when there is one. Initials are the fallback, not the only
+   * option -- this type carried no avatar at all, so a member could set a
+   * profile picture, see it in the form's own preview, and then find every
+   * other place in the product still showing their initials. The photo was
+   * stored and unreachable.
+   */
+  avatarUrl: string | null;
 };
 
 /** `LeaderRow` from lib/stats.ts, plus the `Membership` columns a row draws. */

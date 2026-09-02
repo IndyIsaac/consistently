@@ -160,6 +160,7 @@ const VIEWER: MockUser = {
   walletAddress: "7Nq4mVQiRb3zRk8sYyF2vJp1WcHt6XdAe9LhKuP4sTgB",
   displayName: "Indy",
   initials: "IN",
+  avatarUrl: null,
 };
 
 type Person = {

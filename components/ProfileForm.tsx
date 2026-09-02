@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { TriangleAlert } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -75,6 +76,7 @@ export function ProfileForm({ initial }: {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   async function onAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -156,6 +158,14 @@ export function ProfileForm({ initial }: {
       // retires whatever error the previous attempt left on screen.
       setError(null);
       setState("saved");
+      /**
+       * The header and the card above this form are server-rendered, so they
+       * keep showing whatever the last render read from the database. Without
+       * this a member saved a photo, watched the preview in this form change,
+       * and saw their initials everywhere else until they reloaded -- which
+       * looks exactly like the save not working.
+       */
+      router.refresh();
     } else {
       const body = await res.json().catch(() => ({}));
       setError(body.error ?? "Could not save.");
