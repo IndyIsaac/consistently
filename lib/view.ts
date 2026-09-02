@@ -37,6 +37,8 @@ export type CrewMember = LeaderRow & {
   /** Prisma `Membership.userId`. `memberId` (from LeaderRow) is the membership id. */
   userId: string;
   initials: string;
+  /** Their photo, when they have set one. Initials remain the fallback. */
+  avatarUrl: string | null;
   /** Prisma `MemberStatus`. */
   status: "invited" | "staked" | "passed" | "failed" | "left";
   isViewer: boolean;

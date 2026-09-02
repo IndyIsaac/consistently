@@ -117,6 +117,7 @@ function crewFor(
       ...row,
       userId: member.userId,
       initials: initialsOf(member.user.displayName),
+      avatarUrl: member.user.avatarUrl,
       status: member.status,
       isViewer: member.userId === viewerUserId,
       forfeitedToDate: history.reduce((sum, s) => sum + s.forfeitedBy(member.id), 0),

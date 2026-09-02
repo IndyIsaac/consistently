@@ -178,6 +178,11 @@ async function seedCrew(params: {
           privyId: `did:privy:seed-${slug}`,
           walletAddress: `seed-wallet-${slug}`,
           displayName: seat.name,
+          // A face rather than initials. Committed under public/mock/faces, so
+          // this is a path the app serves itself and a demo never waits on
+          // somebody else's CDN. Named for the seat: swapping one is a file
+          // drop with no code change.
+          avatarUrl: `/mock/faces/${slug}.jpg`,
           walletFundedAt: new Date(),
         },
       }),

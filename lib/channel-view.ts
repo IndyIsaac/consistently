@@ -47,6 +47,7 @@ export type ChannelPactInput = {
   status: "funding" | "active" | "settled";
   crew: (LeaderRow & {
     initials: string;
+    avatarUrl: string | null;
     isViewer: boolean;
     sessions: SessionRecord[];
     /** `Membership.status` -- who has actually paid. */
@@ -71,6 +72,8 @@ export type ChannelMember = {
   /** What the bot calls them in a sentence. */
   firstName: string;
   initials: string;
+  /** Their photo, when they have set one. Initials remain the fallback. */
+  avatarUrl: string | null;
   isViewer: boolean;
   daysDone: number;
   required: number;
@@ -197,6 +200,7 @@ export function channelView(pact: ChannelPactInput, now: Date): ChannelView {
       displayName: member.displayName,
       firstName: firstNameOf(member.displayName),
       initials: member.initials,
+      avatarUrl: member.avatarUrl,
       isViewer: member.isViewer,
       daysDone: member.daysDone,
       required: member.required,

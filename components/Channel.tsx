@@ -14,7 +14,7 @@ import { Feed } from "@/components/Feed";
 import { InviteQr } from "@/components/InviteQr";
 import { PhotoChallenge } from "@/components/PhotoChallenge";
 import { StakeSheet } from "@/components/StakeSheet";
-import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarGroup, AvatarImage } from "@/components/ui/avatar";
 import {
   cadenceMetLine,
   crewReply,
@@ -782,6 +782,7 @@ export function Channel({
             <AvatarGroup>
               {view.crew.map((member) => (
                 <Avatar key={member.memberId} className="size-9">
+                  {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt="" />}
                   <AvatarFallback className="bg-surface text-[12px] font-semibold tracking-[0.02em] text-grey-on-surface">
                     {member.initials}
                   </AvatarFallback>

@@ -213,6 +213,9 @@ function buildCrew(
       ...row,
       userId: person.userId,
       initials: person.initials,
+      // Committed under public/mock/faces and named for the seat, so the demo
+      // shows people rather than a wall of initials.
+      avatarUrl: `/mock/faces/${person.key}.jpg`,
       status: "staked" as const,
       isViewer: person.userId === VIEWER.id,
       forfeitedToDate: person.forfeitedToDate,

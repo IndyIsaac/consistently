@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronRight, Plus } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarGroup, AvatarImage } from "@/components/ui/avatar";
 import { DashedRule, Panel } from "@/components/Panel";
 import { fundingLine, fundingStanding } from "@/lib/channel-view";
 import { formatMoney } from "@/lib/money";
@@ -40,6 +40,7 @@ function GroupRow({ pact }: { pact: PactView }) {
           <AvatarGroup className="shrink-0">
             {pact.crew.map((member) => (
               <Avatar key={member.memberId} className="size-9">
+                {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt="" />}
                 <AvatarFallback className="bg-surface text-[12px] font-semibold tracking-[0.02em] text-grey-on-surface">
                   {member.initials}
                 </AvatarFallback>
